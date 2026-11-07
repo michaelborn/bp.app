@@ -20,7 +20,9 @@ A simple, offline-first, self-hosted blood pressure tracker. Record your blood p
   `id,recorded_at,systolic,diastolic` format the server persists.
 - **Installable PWA** — Standard web manifest, theme colors and icons.
 
-![Table view on desktop](screenshots/table-desktop.png)
+<p align="center">
+  <img src="screenshots/chart.png" alt="bp.app two-week blood pressure chart" width="640">
+</p>
 
 ## Getting started
 
