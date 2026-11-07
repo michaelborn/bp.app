@@ -1,0 +1,25 @@
+services:
+  bp-app:
+    build: .
+    image: bp-app:latest
+    container_name: bp-app
+    restart: unless-stopped
+    environment:
+      # Must match the mounted volume path.
+      BP_DATA_FILE: /data/bp-records.csv
+    volumes:
+      # Persistent CSV storage on the host; create ./data before first run.
+      - ./data:/data
+    ports:
+      # Optional host access for local debugging. Production traffic goes
+      # through SWAG on the shared network instead.
+      - '127.0.0.1:3100:3000'
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    # Name of the Docker network SWAG is attached to. On this box SWAG uses
+    # the network named "proxy" (verify with: docker network ls).
+    name: proxy
+    external: true
