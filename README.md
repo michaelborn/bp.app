@@ -85,6 +85,14 @@ browser, including offline navigation and reconnect scenarios.
    `e2e/`.
 4. Run `npm run test`, `npm run e2e` and `npm run typecheck` — keep them
    green before submitting changes.
+5. Use [conventional commits](https://www.conventionalcommits.org) — they
+   drive the release version bumps and the generated
+   [`changelog.md`](changelog.md). `feat` bumps the minor version, `fix`
+   bumps the patch, and breaking changes (`!` / `BREAKING CHANGE:` footer)
+   bump the major.
+
+Work happens on the `development` branch (unit/e2e CI runs on every push,
+PRs welcome from feature branches); every push to `main` ships a release.
 
 The server-side persistence sits behind the `RecordsRepository` interface
 (`listRecords()` / `insertRecords()`), so alternative backends (e.g. SQLite)
