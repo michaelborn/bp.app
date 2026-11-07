@@ -16,6 +16,11 @@ even without an internet connection. Savings never wait for the network.
   series over the most recent 14 days, with a friendly empty state.
 - **Full history table** — Tab over to the table for every reading, newest
   first, with a per-row sync badge.
+
+| Desktop | Mobile |
+| --- | --- |
+| ![Table view on desktop](screenshots/table-desktop.png) | ![Table view on mobile](screenshots/table-mobile.png) |
+
 - **Works offline** — After the first visit the app shell is cached by a
   service worker; navigation, charts and entry all work without a network.
 - **Queued sync** — Saves land in IndexedDB first, so offline saves succeed

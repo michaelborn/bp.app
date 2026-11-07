@@ -31,7 +31,7 @@ function isPending(record: BPRecord): boolean {
         </thead>
         <tbody>
           <tr v-for="record in props.records" :key="record.id">
-            <th scope="row" class="col-date">{{ new Date(record.recordedAt).toLocaleString() }}</th>
+            <th scope="row" class="col-date">{{ new Date(record.recordedAt).toLocaleString(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit' }) }}</th>
             <td class="col-number">{{ record.systolic }}</td>
             <td class="col-number">{{ record.diastolic }}</td>
             <td class="col-status">
@@ -136,9 +136,24 @@ function isPending(record: BPRecord): boolean {
 }
 
 @media (max-width: 26rem) {
+  .bp-table {
+    font-size: 0.875rem;
+  }
+
+  .bp-table thead th {
+    font-size: 0.6875rem;
+    letter-spacing: 0.01em;
+  }
+
   .bp-table th,
   .bp-table td {
-    padding: 0.4rem 0.4rem;
+    padding: 0.4rem 0.35rem;
+  }
+
+  /* Sync state lives in the header status line on narrow screens; drop the
+     badge column so date and readings fit without horizontal scrolling. */
+  .col-status {
+    display: none;
   }
 }
 </style>
