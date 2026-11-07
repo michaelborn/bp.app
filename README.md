@@ -1,26 +1,13 @@
 # bp.app
 
-A simple, offline-first blood pressure tracker. Record systolic and diastolic
-readings, see the last two weeks at a glance, and browse your full history —
-even without an internet connection. Savings never wait for the network.
-
-> Minimal on purpose. No accounts, no tracking, no cloud — your readings live
-> on your device and one server you control.
+A simple, offline-first, self-hosted blood pressure tracker. Record your blood pressure while offline or away from the LAN, and it will automatically sync when you connect back.
 
 ## Features
 
-- **Two-tap entry** — Record BP opens a compact dialog with the only two
-  fields that matter: systolic and diastolic. Date and time are filled in
-  automatically.
-- **Two-week chart** — Default view plots systolic and diastolic as separate
-  series over the most recent 14 days, with a friendly empty state.
+- **Record Blood Pressure** — Easily record systolic and diastolic. The timestamp is auto-populated and not (currently) editable.
+- **14-day line graph**
 - **Full history table** — Tab over to the table for every reading, newest
   first, with a per-row sync badge.
-
-| Desktop | Mobile |
-| --- | --- |
-| ![Table view on desktop](screenshots/table-desktop.png) | ![Table view on mobile](screenshots/table-mobile.png) |
-
 - **Works offline** — After the first visit the app shell is cached by a
   service worker; navigation, charts and entry all work without a network.
 - **Queued sync** — Saves land in IndexedDB first, so offline saves succeed
@@ -28,10 +15,12 @@ even without an internet connection. Savings never wait for the network.
   30 s poll, Background Sync where the browser supports it) and stay visible
   with a *Waiting to sync* badge until the server acknowledges them.
 - **Idempotent by design** — Every record gets a client-generated UUID;
-  retrying a sync can never produce duplicate rows.
+  double-clicks or sync retries will produce a single row.
 - **Export CSV** — One click downloads your whole history in the same
   `id,recorded_at,systolic,diastolic` format the server persists.
 - **Installable PWA** — Standard web manifest, theme colors and icons.
+
+![Table view on desktop](screenshots/table-desktop.png)
 
 ## Getting started
 
@@ -74,26 +63,7 @@ image (`docker-compose.yml` provided):
    Hostnames are environment/deployment configuration — keep them out of
    this repository.
 
-Service workers require HTTPS, so the offline features activate once the app
-is served over a secure context (`localhost` counts for development).
-
-## How it works
-
-```
-shared/                     record shape + validation rules (client & server)
-services/records.client.ts  typed HTTP client (fetch)
-services/records.local.ts   IndexedDB cache + pending-sync queue
-composables/useBPRecords.ts local-first records composable (all sync triggers)
-server/api/                 GET /api/records · POST /api/records/sync · GET /api/health
-server/utils/csvRepository.ts  CSV persistence behind a repository interface
-public/bp-sync.js           Background Sync replay inside the service worker
-```
-
-The same-origin API validates every record (positive integers, sensible
-mmHg bounds, systolic > diastolic, valid UUID and ISO-8601 UTC timestamp)
-and returns HTTP 4xx otherwise. Writes are serialized with a process-local
-lock; malformed CSV rows are skipped on read and duplicate IDs are ignored —
-so a retried sync request acknowledges without duplicating data.
+Service workers require HTTPS, so for offline functionality you'll need to set up a reverse proxy with SSL support. (I use [SWAG](https://docs.linuxserver.io/general/swag/).)
 
 ## Testing
 
