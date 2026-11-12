@@ -21,6 +21,23 @@ const props = defineProps<{
   records: { recordedAt: string; systolic: number; diastolic: number }[];
 }>();
 
+// 'split' = separate systolic/diastolic graphs; 'stack' = both series on
+// one shared-axis chart. The choice persists in localStorage.
+const chartMode = ref<'split' | 'stack'>('split');
+const isSplit = computed(() => chartMode.value === 'split');
+
+onMounted(() => {
+  const saved = window.localStorage.getItem('bp-chart-mode');
+  if (saved === 'split' || saved === 'stack') {
+    chartMode.value = saved;
+  }
+});
+
+function toggleChartMode() {
+  chartMode.value = isSplit.value ? 'stack' : 'split';
+  window.localStorage.setItem('bp-chart-mode', chartMode.value);
+}
+
 const SERIES = [
   {
     key: 'systolic',
@@ -66,7 +83,7 @@ function chartDataFor(key: SeriesKey, label: string, color: string, background: 
 
 // Separate graphs: each series gets its own y-axis window hugging its own
 // data range, which makes pressure changes per value more readable.
-function chartOptionsFor(key: SeriesKey, label: string): ChartOptions<'line'> {
+function chartOptionsFor(key: SeriesKey, label: string, legend = false): ChartOptions<'line'> {
   const { min, max } = bpChartBounds(
     valuesFor(key).map((value) => ({ systolic: value, diastolic: value })),
   );
@@ -89,7 +106,7 @@ function chartOptionsFor(key: SeriesKey, label: string): ChartOptions<'line'> {
       },
     },
     plugins: {
-      legend: { display: false },
+      legend: { display: legend },
       tooltip: {
         callbacks: {
           label: (context: { dataset: { label?: string }; parsed: { y: number | null } }) => {
@@ -119,13 +136,90 @@ const rangeText = computed(() => {
   const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
   return `${fmt(cutoff)} – ${fmt(now)}`;
 });
+
+// Stack mode: both series on one chart with a shared axis window.
+const stackData = computed(() => ({
+  labels: sorted.value.map((r) => new Date(r.recordedAt)),
+  datasets: [
+    {
+      label: 'Systolic',
+      data: valuesFor('systolic'),
+      borderColor: '#b91c1c',
+      backgroundColor: '#fee2e2',
+      pointRadius: 3,
+      tension: 0.25,
+    },
+    {
+      label: 'Diastolic',
+      data: valuesFor('diastolic'),
+      borderColor: '#0e7490',
+      backgroundColor: '#cffafe',
+      pointRadius: 3,
+      tension: 0.25,
+    },
+  ],
+}));
+
+const stackOptions = computed<ChartOptions<'line'>>(() => {
+  const { min, max } = bpChartBounds(props.records);
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'nearest' as const, intersect: false },
+    scales: {
+      x: {
+        type: 'time' as const,
+        time: { unit: 'day', tooltipFormat: 'MMM d, HH:mm' },
+        axis: 'x' as const,
+        title: { display: false },
+        grid: { display: false },
+      },
+      y: {
+        min,
+        max,
+        title: { display: true, text: 'Blood pressure (mmHg)' },
+      },
+    },
+    plugins: {
+      legend: { display: true },
+      tooltip: {
+        callbacks: {
+          label: (context: { dataset: { label?: string }; parsed: { y: number | null } }) => {
+            return `${context.dataset.label ?? 'Reading'}: ${context.parsed.y} mmHg`;
+          },
+          title: (items: { parsed: { x: number | null } }[]) => {
+            const first = items[0];
+            if (!first || first.parsed.x === null) {
+              return '';
+            }
+            return new Date(first.parsed.x).toLocaleString(undefined, {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            });
+          },
+        },
+      },
+    },
+  };
+});
 </script>
 
 <template>
   <section class="bp-chart" aria-labelledby="bp-chart-heading">
     <div class="bp-chart-heading-row">
       <h2 id="bp-chart-heading" class="bp-chart-h">Blood pressure — last two weeks</h2>
-      <p class="bp-chart-range">{{ rangeText }}</p>
+      <div class="bp-chart-heading-right">
+        <p class="bp-chart-range">{{ rangeText }}</p>
+        <button
+          type="button"
+          class="bp-button"
+          data-test="chart-mode-toggle"
+          :aria-pressed="!isSplit"
+          @click="toggleChartMode"
+        >
+          {{ isSplit ? 'Stack graph' : 'Split graph' }}
+        </button>
+      </div>
     </div>
 
     <div v-if="!props.records.length" class="bp-empty">
@@ -134,17 +228,27 @@ const rangeText = computed(() => {
     </div>
 
     <ClientOnly v-else>
+      <template v-if="isSplit">
+        <div
+          v-for="series in SERIES"
+          :key="series.key"
+          class="bp-chart-canvas"
+          role="img"
+          :aria-label="`Line chart of ${series.label.toLowerCase()} blood pressure over the last two weeks`"
+        >
+          <Line
+            :data="chartDataFor(series.key, series.label, series.color, series.background)"
+            :options="chartOptionsFor(series.key, series.label)"
+          />
+        </div>
+      </template>
       <div
-        v-for="series in SERIES"
-        :key="series.key"
-        class="bp-chart-canvas"
+        v-else
+        class="bp-chart-canvas bp-chart-canvas-stack"
         role="img"
-        :aria-label="`Line chart of ${series.label.toLowerCase()} blood pressure over the last two weeks`"
+        aria-label="Combined line chart of systolic and diastolic blood pressure over the last two weeks"
       >
-        <Line
-          :data="chartDataFor(series.key, series.label, series.color, series.background)"
-          :options="chartOptionsFor(series.key, series.label)"
-        />
+        <Line :data="stackData" :options="stackOptions" />
       </div>
       <template #fallback>
         <div class="bp-chart-fallback">Chart loads once the app is open.</div>
@@ -169,6 +273,12 @@ const rangeText = computed(() => {
   justify-content: space-between;
 }
 
+.bp-chart-heading-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .bp-chart-h {
   margin: 0;
   font-size: 1rem;
@@ -184,6 +294,10 @@ const rangeText = computed(() => {
   position: relative;
   height: 13rem;
   margin-top: 1rem;
+}
+
+.bp-chart-canvas-stack {
+  height: 17rem;
 }
 
 .bp-chart-fallback {

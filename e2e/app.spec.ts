@@ -382,3 +382,37 @@ test.describe('table edit mode', () => {
     await page.getByRole('button', { name: 'Done' }).click();
   });
 });
+
+test.describe('chart mode toggle', () => {
+  test('toggles between split graphs and the stacked graph', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Stack graph' }).waitFor();
+
+    // Default: split — two canvases.
+    await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(2);
+
+    // Toggle to stack: one canvas showing both series (legend visible).
+    await page.getByRole('button', { name: 'Stack graph' }).click();
+    await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Split graph' })).toBeVisible();
+    await expect(page.locator('.bp-chart-canvas')).toContainText('');
+
+    // Back to split.
+    await page.getByRole('button', { name: 'Split graph' }).click();
+    await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(2);
+  });
+
+  test('the chosen mode persists across reloads', async ({ page }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'Stack graph' }).click();
+    await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(1);
+
+    await page.reload();
+    await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(1);
+    await expect(page.getByRole('button', { name: 'Split graph' })).toBeVisible();
+
+    // Restore the default for later tests.
+    await page.getByRole('button', { name: 'Split graph' }).click();
+    await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(2);
+  });
+});

@@ -218,20 +218,6 @@ input[type='number'] {
   margin-top: 0.25rem;
 }
 
-.bp-button {
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--bp-border);
-  background: var(--bp-surface);
-  color: var(--bp-text);
-  cursor: pointer;
-}
-
-.bp-button:focus-visible {
-  outline: 2px solid var(--bp-accent);
-  outline-offset: 2px;
-}
-
 .bp-button-primary {
   background: var(--bp-accent);
   border-color: var(--bp-accent);
