@@ -1,0 +1,15 @@
+name: Publish image
+
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  docker:
+    uses: ./.github/workflows/docker.yml
+    with:
+      version-tag: ${{ github.event.release.tag_name }}
+    permissions:
+      contents: read
+      packages: write

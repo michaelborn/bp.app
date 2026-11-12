@@ -10,7 +10,7 @@ definePageMeta({
 
 type ViewName = 'chart' | 'table';
 
-const { chartRecords, sortedRecords, pendingIds, loading, syncStatus, isOnline, hasPending, initialize, saveRecord, startSync, lastSyncedAt } = useBPRecords();
+const { chartRecords, sortedRecords, pendingIds, loading, syncStatus, isOnline, hasPending, initialize, saveRecord, updateRecord, deleteRecord, startSync, lastSyncedAt } = useBPRecords();
 
 const currentView = ref<ViewName>('chart');
 const recordDialogOpen = ref(false);
@@ -179,7 +179,12 @@ function exportCsv(): void {
         aria-labelledby="tab-table"
         data-test="panel-table"
       >
-        <BPRecordsTable :records="sortedRecords" :pending-ids="pendingIds ?? undefined" />
+        <BPRecordsTable
+          :records="sortedRecords"
+          :pending-ids="pendingIds ?? undefined"
+          @update-record="updateRecord"
+          @delete-record="deleteRecord"
+        />
       </div>
     </template>
 

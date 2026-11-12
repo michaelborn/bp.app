@@ -231,3 +231,154 @@ test('pending records poll for connectivity and sync without user action', async
     .toBe(true);
   await expect(page.locator('body')).toContainText(/Synced/);
 });
+
+test.describe('table edit mode', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    // Wait for the initial server pull/sync to settle so late record
+    // refreshes cannot re-render rows mid-edit (which drops input focus).
+    await expect(page.locator('.bp-sync')).toContainText(/Synced/, { timeout: 15_000 });
+    await page.getByRole('tab', { name: 'Table' }).click();
+  });
+
+  // Anchors a table row by its record id, immune to re-sorting.
+  function rowForId(page: any, id: string) {
+    return page.locator(`tr[data-record-id="${id}"]`);
+  }
+
+  test('edit mode turns values into inputs with a delete column', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await expect(page.getByRole('button', { name: 'Done' })).toBeVisible();
+
+    const firstDataRow = page.getByRole('table').getByRole('row').nth(1);
+    const dateInput = firstDataRow.locator('[data-test="date-input"]');
+    await expect(dateInput).toHaveAttribute('type', 'datetime-local');
+    await expect(firstDataRow.locator('[data-test="systolic-input"]')).toHaveValue(/^\d+$/);
+    await expect(firstDataRow.getByRole('button', { name: 'Delete' })).toBeVisible();
+
+    // Leaving edit mode restores plain text cells.
+    await page.getByRole('button', { name: 'Done' }).click();
+    await expect(firstDataRow.locator('[data-test="date-input"]')).toHaveCount(0);
+  });
+
+  test('edited values save on blur and sync to the server', async ({ page }) => {
+    const targetId = await page.evaluate(async () => (await (await fetch('/api/records')).json())[0].id);
+    const targetRow = rowForId(page, targetId);
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await targetRow.locator('[data-test="systolic-input"]').fill('137');
+    // Blur the edited field by focusing the next input (real interaction).
+    await targetRow.locator('[data-test="diastolic-input"]').click();
+
+    // Row flips to Waiting to sync, then Synced once acknowledged.
+    await expect(targetRow).toContainText(/Waiting to sync|Synced/, { timeout: 10_000 });
+    await expect(targetRow).toContainText('Synced', { timeout: 15_000 });
+
+    // The server stores the edited value.
+    await expect
+      .poll(async () => {
+        return page.evaluate(async (id) => {
+          const records = (await (await fetch('/api/records')).json()) as { id: string; systolic: number }[];
+          return records.find((r) => r.id === id)?.systolic === 137;
+        }, targetId);
+      }, { timeout: 10_000 })
+      .toBe(true);
+  });
+
+  test('editing the date via datetime-local persists an ISO timestamp', async ({ page }) => {
+    const targetId = await page.evaluate(async () => (await (await fetch('/api/records')).json())[0].id);
+    const targetRow = rowForId(page, targetId);
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await targetRow.locator('[data-test="date-input"]').fill('2026-11-05T10:30');
+    await targetRow.locator('[data-test="systolic-input"]').click(); // blur triggers commit
+    await expect(targetRow).toContainText('Synced', { timeout: 15_000 });
+
+    await expect
+      .poll(async () => {
+        return page.evaluate(async (id) => {
+          const records = (await (await fetch('/api/records')).json()) as { id: string; recordedAt: string }[];
+          return records.find((r) => r.id === id)?.recordedAt.startsWith('2026-11-05T') ?? false;
+        }, targetId);
+      }, { timeout: 10_000 })
+      .toBe(true);
+  });
+
+  test('invalid edits show an inline error and are not saved', async ({ page }) => {
+    const targetId = await page.evaluate(async () => (await (await fetch('/api/records')).json())[0].id);
+    const targetRow = rowForId(page, targetId);
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await targetRow.locator('[data-test="systolic-input"]').fill('90');
+    await targetRow.locator('[data-test="diastolic-input"]').fill('120');
+    // blur via clicking elsewhere (focus moves away)
+    await targetRow.locator('[data-test="systolic-input"]').click();
+
+    await expect(targetRow.getByRole('alert')).toContainText('Systolic must be greater than diastolic.');
+    // The invalid values remain in the inputs (not silently discarded).
+    await expect(targetRow.locator('[data-test="systolic-input"]')).toHaveValue('90');
+    await expect(targetRow.locator('[data-test="diastolic-input"]')).toHaveValue('120');
+
+    await page.getByRole('button', { name: 'Done' }).click();
+  });
+
+  test('delete removes the row locally and on the server', async ({ page }) => {
+    const targetId = await page.evaluate(async () => (await (await fetch('/api/records')).json())[0].id);
+    const rowsBefore = await page.getByRole('table').getByRole('row').count();
+
+    await page.getByRole('button', { name: 'Edit' }).click();
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowForId(page, targetId).getByRole('button', { name: 'Delete' }).click();
+
+    await expect(rowForId(page, targetId)).toHaveCount(0, { timeout: 10_000 });
+    await expect(page.getByRole('table').getByRole('row')).toHaveCount(rowsBefore - 1, { timeout: 10_000 });
+
+    // The server no longer has the deleted record.
+    await expect
+      .poll(async () => {
+        return page.evaluate(async (id) => {
+          const records = (await (await fetch('/api/records')).json()) as { id: string }[];
+          return !records.some((r) => r.id === id);
+        }, targetId);
+      }, { timeout: 10_000 })
+      .toBe(true);
+  });
+
+  test('offline edit and delete are queued and sync after reconnect', async ({ page }) => {
+    // Grab the ids while still online.
+    const ids = await page.evaluate(async () => {
+      const records = (await (await fetch('/api/records')).json()) as { id: string }[];
+      return records.map((r) => r.id);
+    });
+    expect(ids.length).toBeGreaterThanOrEqual(2);
+    const [editedId, deletedId] = [ids[0], ids[1]];
+
+    await page.context().setOffline(true);
+
+    // Edit while offline.
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await rowForId(page, editedId).locator('[data-test="systolic-input"]').fill('144');
+    await rowForId(page, editedId).locator('[data-test="diastolic-input"]').click();
+    await expect(rowForId(page, editedId)).toContainText('Waiting to sync');
+
+    // Delete another row while offline.
+    page.once('dialog', (dialog) => dialog.accept());
+    await rowForId(page, deletedId).getByRole('button', { name: 'Delete' }).click();
+
+    // Reconnect: the edit lands as an update and the deletion removes the row.
+    await page.context().setOffline(false);
+    await expect
+      .poll(async () => {
+        return page.evaluate(async ([editedId, deletedId]) => {
+          const records = (await (await fetch('/api/records')).json()) as { id: string; systolic: number }[];
+          const edited = records.find((r) => r.id === editedId);
+          return edited?.systolic === 144 && !records.some((r) => r.id === deletedId);
+        }, [editedId, deletedId] as const);
+      }, { timeout: 45_000, intervals: [1000, 5000, 10_000, 20_000] })
+      .toBe(true);
+
+    await page.getByRole('button', { name: 'Done' }).click();
+  });
+});

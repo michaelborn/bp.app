@@ -2,7 +2,7 @@ import { ref, computed } from 'vue';
 
 import type { BPRecord } from '~/shared/bp-record';
 import * as local from '~/services/records.local';
-import { getServerRecords, syncRecords } from '~/services/records.client';
+import { deleteServerRecords, getServerRecords, syncRecords } from '~/services/records.client';
 
 export type SyncStatus = 'synced' | 'waiting' | 'offline' | 'error';
 
@@ -80,8 +80,27 @@ export function useBPRecords() {
     return record;
   }
 
-  // Uploads pending records until the server acknowledges them. Returns
-  // without action when offline or another sync is running.
+  // Edits an existing record: local write + re-queue first, then sync.
+  async function updateRecord(record: BPRecord): Promise<void> {
+    await local.updateRecord(record);
+    await refresh();
+    if (navigator.onLine) {
+      startSync().catch(() => {});
+    }
+  }
+
+  // Deletes a record: tombstone + local removal first, then sync.
+  async function deleteRecord(id: string): Promise<void> {
+    await local.deleteRecordLocally(id);
+    await refresh();
+    if (navigator.onLine) {
+      startSync().catch(() => {});
+    }
+  }
+
+  // Uploads pending records until the server acknowledges them, then pushes
+  // pending deletions. Returns without action when offline or another sync
+  // is running.
   async function startSync(): Promise<void> {
     if (syncInFlight || !navigator.onLine) {
       return;
@@ -90,22 +109,30 @@ export function useBPRecords() {
     syncError.value = null;
     try {
       const pending = await local.getPendingRecords();
-      if (pending.length === 0) {
-        lastSyncedAt.value = new Date().toISOString();
-        return;
+      const deletions = await local.getDeletionIds();
+
+      if (pending.length > 0) {
+        const response = await syncRecords(pending.slice(0, MAX_AUTO_SYNC_BATCH));
+        for (const id of response.acked) {
+          await local.clearPending(id);
+        }
+        if (response.records?.length) {
+          await local.upsertRemoteRecords(response.records);
+        }
       }
-      const response = await syncRecords(pending.slice(0, MAX_AUTO_SYNC_BATCH));
-      for (const id of response.acked) {
-        await local.clearPending(id);
+
+      if (deletions.length > 0) {
+        const response = await deleteServerRecords(deletions);
+        for (const id of response.acked) {
+          await local.clearDeletion(id);
+        }
       }
-      pendingIds.value = new Set((await local.getPendingIds()).filter((id) => !response.acked.includes(id)));
-      if (response.records?.length) {
-        await local.upsertRemoteRecords(response.records);
-      }
+
       lastSyncedAt.value = new Date().toISOString();
+      pendingIds.value = new Set(await local.getPendingIds());
       await refresh();
       // Keep going if more remain queued.
-      if ((await local.countPending()) > 0) {
+      if ((await local.countPending()) > 0 || (await local.countDeletions()) > 0) {
         setTimeout(() => startSync().catch(() => {}), 1000);
       }
     } catch (error) {
@@ -132,9 +159,7 @@ export function useBPRecords() {
     } catch (error) {
       syncError.value = error instanceof Error ? error.message : 'Could not load server records.';
     }
-  }
-
-  function installTriggers(): void {
+  }  function installTriggers(): void {
     if (started) {
       return;
     }
@@ -219,6 +244,8 @@ export function useBPRecords() {
     initialize,
     refresh,
     saveRecord,
+    updateRecord,
+    deleteRecord,
     startSync,
     pullServerRecords,
   };

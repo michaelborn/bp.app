@@ -12,6 +12,8 @@ export const CSV_HEADER = 'id,recorded_at,systolic,diastolic';
 export interface RecordsRepository {
   listRecords(): Promise<BPRecord[]>;
   insertRecords(records: BPRecord[]): Promise<BPRecord[]>;
+  updateRecord(record: BPRecord): Promise<BPRecord>;
+  deleteRecords(ids: string[]): Promise<string[]>;
 }
 
 // Resolves the CSV path from the environment, defaulting under /data.
@@ -186,31 +188,72 @@ export async function withWriteLock<T>(fn: () => T | Promise<T>): Promise<T> {
   }
 }
 
-// Appends records whose ids are not yet stored, creating the file with the
-// CSV header when it is missing. Returns the records that were inserted.
+// Rewrites the entire CSV file atomically (temp file + rename) under the
+// caller's write lock.
+function writeRecordsAtomically(filePath: string, records: BPRecord[]): void {
+  ensureDataDir(filePath);
+  const tmp = `${filePath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, serializeCsvRows(records), 'utf8');
+  fs.renameSync(tmp, filePath);
+}
+
+// Upserts records by id: unknown ids are appended, known ids are replaced in
+// place (used both by the sync endpoint and record edits). Invalid records
+// are skipped. Retrying a batch therefore cannot duplicate rows.
 export async function insertCsvRecords(filePath: string, newRecords: BPRecord[]): Promise<BPRecord[]> {
   ensureDataDir(filePath);
   return withWriteLock(() => {
-    const existing = readCsvRecords(filePath);
-    const ids = new Set(existing.map((r) => r.id));
-    const inserted: BPRecord[] = [];
+    const records = readCsvRecords(filePath);
+    const upserted: BPRecord[] = [];
 
-    let content = '';
-    if (!fs.existsSync(filePath)) {
-      content = CSV_HEADER + '\n';
-    }
     for (const record of newRecords) {
-      if (!validateRecord(record).valid || ids.has(record.id)) {
+      if (!validateRecord(record).valid) {
         continue;
       }
-      ids.add(record.id);
-      inserted.push(record);
-      content += serializeRecordLine(record) + '\n';
+      const index = records.findIndex((r) => r.id === record.id);
+      if (index >= 0) {
+        records[index] = record;
+      } else {
+        records.push(record);
+      }
+      upserted.push(record);
     }
-    if (content) {
-      fs.appendFileSync(filePath, content, 'utf8');
+    if (upserted.length) {
+      writeRecordsAtomically(filePath, records);
     }
-    return inserted;
+    return upserted;
+  });
+}
+
+// Replaces a single record by id; throws if the record does not exist.
+export async function updateCsvRecord(filePath: string, record: BPRecord): Promise<BPRecord> {
+  ensureDataDir(filePath);
+  return withWriteLock(() => {
+    const records = readCsvRecords(filePath);
+    const index = records.findIndex((r) => r.id === record.id);
+    if (index === -1) {
+      throw new Error('not-found');
+    }
+    records[index] = record;
+    writeRecordsAtomically(filePath, records);
+    return record;
+  });
+}
+
+// Removes records by id, rewriting the file atomically. Idempotent:
+// unknown ids are ignored. Returns the ids that were actually removed.
+export async function deleteCsvRecords(filePath: string, ids: string[]): Promise<string[]> {
+  ensureDataDir(filePath);
+  return withWriteLock(() => {
+    const idSet = new Set(ids);
+    const records = readCsvRecords(filePath);
+    const kept = records.filter((r) => !idSet.has(r.id));
+    if (kept.length === records.length) {
+      return [];
+    }
+    const removed = new Set(records.filter((r) => idSet.has(r.id)).map((r) => r.id));
+    writeRecordsAtomically(filePath, kept);
+    return [...removed];
   });
 }
 
@@ -238,6 +281,15 @@ export function createCsvRepository(): RecordsRepository {
     },
     async insertRecords(records: BPRecord[]) {
       return insertCsvRecords(filePath, records);
+    },
+    async updateRecord(record: BPRecord) {
+      if (!validateRecord(record).valid) {
+        throw new Error('invalid-record');
+      }
+      return updateCsvRecord(filePath, record);
+    },
+    async deleteRecords(ids: string[]) {
+      return deleteCsvRecords(filePath, ids);
     },
   };
 }

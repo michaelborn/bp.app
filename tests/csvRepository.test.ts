@@ -75,10 +75,13 @@ describe('CSV parsing robustness', () => {
     ]);
   });
 
-  it('a no-op insert on an empty store stores only the header', async () => {
+  it('a no-op insert on an empty store creates no file', async () => {
     const { repository, file } = await freshRepository();
     await repository.insertRecords([]);
-    expect(fs.readFileSync(file, 'utf8')).toBe(HEADER + '\n');
+    // Nothing to write: the file is created with the header on the first
+    // actual insert (see the header-creation test above).
+    expect(fs.existsSync(file)).toBe(false);
+    expect(await repository.listRecords()).toEqual([]);
   });
 
   it('skips malformed rows and keeps valid ones', async () => {
@@ -147,7 +150,8 @@ describe('idempotent sync, dedupe, and serialized writes', () => {
   it('replaying a sync with the same ids does not duplicate rows', async () => {
     const { repository, file } = await freshRepository();
     expect(await repository.insertRecords([RECORD_A, RECORD_B])).toEqual([RECORD_A, RECORD_B]);
-    expect(await repository.insertRecords([RECORD_A, RECORD_B])).toEqual([]);
+    // Replay upserts the same records: acked again, but never duplicated.
+    expect(await repository.insertRecords([RECORD_A, RECORD_B])).toEqual([RECORD_A, RECORD_B]);
 
     const rows = fs.readFileSync(file, 'utf8').trim().split('\n');
     expect(rows).toHaveLength(3); // header + 2 unique records
@@ -182,6 +186,72 @@ describe('idempotent sync, dedupe, and serialized writes', () => {
     for (const row of fs.readFileSync(file, 'utf8').trim().split('\n').slice(1)) {
       expect(row.split('\n')).toHaveLength(1);
     }
+  });
+});
+
+describe('record edits (upsert) and deletions', () => {
+  it('updateRecord replaces an existing row in place', async () => {
+    const { repository, file } = await freshRepository();
+    await repository.insertRecords([RECORD_A, RECORD_B]);
+
+    const updated = await repository.updateRecord({ ...RECORD_A, systolic: 140, diastolic: 90, recordedAt: '2026-01-01T12:00:00Z' });
+    expect(updated).toEqual({ ...RECORD_A, systolic: 140, diastolic: 90, recordedAt: '2026-01-01T12:00:00Z' });
+
+    const rows = fs.readFileSync(file, 'utf8').trim().split('\n');
+    expect(rows).toHaveLength(3); // header + 2 records (no duplicate row)
+    expect(rows[1]).toBe(`${UUID_A},2026-01-01T12:00:00Z,140,90`);
+
+    const stored = await repository.listRecords();
+    expect(stored.find((r) => r.id === UUID_A)?.systolic).toBe(140);
+  });
+
+  it('updateRecord rejects unknown ids and invalid records', async () => {
+    const { repository } = await freshRepository();
+    await repository.insertRecords([RECORD_A]);
+
+    await expect(repository.updateRecord({ ...RECORD_B })).rejects.toThrow('not-found');
+    await expect(repository.updateRecord({ ...RECORD_A, systolic: 12.5 })).rejects.toThrow('invalid-record');
+    const stored = await repository.listRecords();
+    expect(stored).toEqual([RECORD_A]);
+  });
+
+  it('deleteRecords removes rows and is idempotent', async () => {
+    const { repository, file } = await freshRepository();
+    await repository.insertRecords([RECORD_A, RECORD_B, RECORD_C]);
+
+    expect(await repository.deleteRecords([UUID_A])).toEqual([UUID_A]);
+    // Deleting again (or unknown ids) removes nothing and stays successful.
+    expect(await repository.deleteRecords([UUID_A, '00000000-0000-4000-8000-000000000099'])).toEqual([]);
+
+    const rows = fs.readFileSync(file, 'utf8').trim().split('\n');
+    expect(rows).toHaveLength(3); // header + B + C
+    expect(rows.some((row) => row.includes(UUID_B))).toBe(true);
+    expect(rows.some((row) => row.includes(UUID_C))).toBe(true);
+    expect(rows.some((row) => row.includes(UUID_A))).toBe(false);
+
+    const stored = await repository.listRecords();
+    expect(stored.map((r) => r.id)).toEqual([UUID_C, UUID_B]);
+  });
+
+  it('deleted rows leave a valid header + escaped file', async () => {
+    const { repository, file } = await freshRepository();
+    await repository.insertRecords([RECORD_A]);
+    await repository.deleteRecords([UUID_A]);
+
+    const content = fs.readFileSync(file, 'utf8');
+    expect(content).toBe('id,recorded_at,systolic,diastolic\n');
+  });
+
+  it('a replayed sync after an edit keeps the edited values', async () => {
+    const { repository } = await freshRepository();
+    await repository.insertRecords([RECORD_A]);
+    const edited = await repository.updateRecord({ ...RECORD_A, systolic: 140 });
+    // The client's pending queue now holds the edited copy, so a replayed
+    // sync sends the edited payload and it must upsert cleanly.
+    await repository.insertRecords([edited]);
+
+    const stored = await repository.listRecords();
+    expect(stored.find((r) => r.id === UUID_A)?.systolic).toBe(140);
   });
 });
 

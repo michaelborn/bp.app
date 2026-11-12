@@ -62,3 +62,22 @@ export async function syncRecords(records: BPRecord[]): Promise<SyncResponse> {
     body: JSON.stringify(body),
   });
 }
+
+// PUT /api/records/:id — replaces a stored record (edits).
+export async function updateServerRecord(record: BPRecord): Promise<BPRecord> {
+  return requestRecords<BPRecord>(`/api/records/${record.id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(record),
+  });
+}
+
+// POST /api/records/delete — batch-deletes stored records; acks all ids
+// (idempotent for unknown ids).
+export async function deleteServerRecords(ids: string[]): Promise<{ acked: string[]; removed: string[] }> {
+  return requestRecords<{ acked: string[]; removed: string[] }>('/api/records/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+}

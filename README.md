@@ -8,6 +8,11 @@ A simple, offline-first, self-hosted blood pressure tracker. Record your blood p
 - **14-day line graph**
 - **Full history table** — Tab over to the table for every reading, newest
   first, with a per-row sync badge.
+- **Edit & delete** — The table has an edit mode: every value becomes an
+  input (date included), changes save on blur, and each row gets a delete
+  button. Edits and deletions go through the same offline queue and sync
+  badges as new records; deletions are tombstoned so they survive offline
+  periods without resurrecting on the next pull.
 - **Works offline** — After the first visit the app shell is cached by a
   service worker; navigation, charts and entry all work without a network.
 - **Queued sync** — Saves land in IndexedDB first, so offline saves succeed
@@ -102,8 +107,8 @@ can be swapped in without touching the API contract or UI.
 
 ## Status & limitations
 
-This is a proof-of-concept build: single-user, no authentication, and no
-edit/delete of records. It is intended to be deployed behind network-level
+This is a proof-of-concept build: single-user and no authentication. It is
+intended to be deployed behind network-level
 access restrictions or for personal use. Do not store sensitive data while
 the deployment is publicly reachable.
 
