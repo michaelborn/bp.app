@@ -21,45 +21,55 @@ const props = defineProps<{
   records: { recordedAt: string; systolic: number; diastolic: number }[];
 }>();
 
-// Build the dataset once at render time (client only); the chart is
+const SERIES = [
+  {
+    key: 'systolic',
+    label: 'Systolic',
+    color: '#b91c1c',
+    background: '#fee2e2',
+  },
+  {
+    key: 'diastolic',
+    label: 'Diastolic',
+    color: '#0e7490',
+    background: '#cffafe',
+  },
+] as const;
+
+type SeriesKey = (typeof SERIES)[number]['key'];
+
+// Build the datasets once at render time (client only); the chart is
 // rendered inside <ClientOnly> so SSR never touches Chart.js.
-const chartData = computed(() => {
-  const records = props.records;
-  const sorted = [...records].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime());
+const sorted = computed(() =>
+  [...props.records].sort((a, b) => new Date(a.recordedAt).getTime() - new Date(b.recordedAt).getTime()),
+);
+
+function valuesFor(key: SeriesKey): number[] {
+  return sorted.value.map((r) => r[key]);
+}
+
+function chartDataFor(key: SeriesKey, label: string, color: string, background: string) {
   return {
-    labels: sorted.map((r) => new Date(r.recordedAt)),
+    labels: sorted.value.map((r) => new Date(r.recordedAt)),
     datasets: [
       {
-        label: 'Systolic',
-        data: sorted.map((r) => r.systolic),
-        borderColor: '#b91c1c',
-        backgroundColor: '#fee2e2',
-        pointRadius: 3,
-        tension: 0.25,
-      },
-      {
-        label: 'Diastolic',
-        data: sorted.map((r) => r.diastolic),
-        borderColor: '#0e7490',
-        backgroundColor: '#cffafe',
+        label,
+        data: valuesFor(key),
+        borderColor: color,
+        backgroundColor: background,
         pointRadius: 3,
         tension: 0.25,
       },
     ],
   };
-});
+}
 
-const rangeText = computed(() => {
-  const now = new Date();
-  const cutoff = new Date(now);
-  cutoff.setHours(0, 0, 0, 0);
-  cutoff.setDate(cutoff.getDate() - 13);
-  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  return `${fmt(cutoff)} – ${fmt(now)}`;
-});
-
-const chartOptions = computed<ChartOptions<'line'>>(() => {
-  const { min, max } = bpChartBounds(props.records);
+// Separate graphs: each series gets its own y-axis window hugging its own
+// data range, which makes pressure changes per value more readable.
+function chartOptionsFor(key: SeriesKey, label: string): ChartOptions<'line'> {
+  const { min, max } = bpChartBounds(
+    valuesFor(key).map((value) => ({ systolic: value, diastolic: value })),
+  );
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -75,30 +85,39 @@ const chartOptions = computed<ChartOptions<'line'>>(() => {
       y: {
         min,
         max,
-        title: { display: true, text: 'Blood pressure (mmHg)' },
+        title: { display: true, text: `${label} (mmHg)` },
       },
     },
     plugins: {
-    legend: { display: true },
-    tooltip: {
-      callbacks: {
-        label: (context: { dataset: { label?: string }; parsed: { y: number | null } }) => {
-          return `${context.dataset.label ?? 'Reading'}: ${context.parsed.y} mmHg`;
-        },
-        title: (items: { parsed: { x: number | null } }[]) => {
-          const first = items[0];
-          if (!first || first.parsed.x === null) {
-            return '';
-          }
-          return new Date(first.parsed.x).toLocaleString(undefined, {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-          });
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (context: { dataset: { label?: string }; parsed: { y: number | null } }) => {
+            return `${context.dataset.label ?? label}: ${context.parsed.y} mmHg`;
+          },
+          title: (items: { parsed: { x: number | null } }[]) => {
+            const first = items[0];
+            if (!first || first.parsed.x === null) {
+              return '';
+            }
+            return new Date(first.parsed.x).toLocaleString(undefined, {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            });
+          },
         },
       },
     },
-  },
-};
+  };
+}
+
+const rangeText = computed(() => {
+  const now = new Date();
+  const cutoff = new Date(now);
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - 13);
+  const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return `${fmt(cutoff)} – ${fmt(now)}`;
 });
 </script>
 
@@ -115,10 +134,16 @@ const chartOptions = computed<ChartOptions<'line'>>(() => {
     </div>
 
     <ClientOnly v-else>
-      <div class="bp-chart-canvas" role="img" aria-label="Line chart of systolic and diastolic blood pressure over the last two weeks">
+      <div
+        v-for="series in SERIES"
+        :key="series.key"
+        class="bp-chart-canvas"
+        role="img"
+        :aria-label="`Line chart of ${series.label.toLowerCase()} blood pressure over the last two weeks`"
+      >
         <Line
-          :data="chartData"
-          :options="chartOptions"
+          :data="chartDataFor(series.key, series.label, series.color, series.background)"
+          :options="chartOptionsFor(series.key, series.label)"
         />
       </div>
       <template #fallback>
@@ -157,11 +182,12 @@ const chartOptions = computed<ChartOptions<'line'>>(() => {
 
 .bp-chart-canvas {
   position: relative;
-  height: 16rem;
+  height: 13rem;
+  margin-top: 1rem;
 }
 
 .bp-chart-fallback {
-  height: 16rem;
+  height: 13rem;
   display: flex;
   align-items: center;
   justify-content: center;

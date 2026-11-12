@@ -128,8 +128,10 @@ async function main() {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2 });
     const page = await context.newPage();
     await page.goto(BASE_URL);
-    // Chart tab is the default view; wait for the canvas to be drawn.
-    await page.locator('.bp-chart-canvas canvas').waitFor({ state: 'visible' });
+    // Chart tab is the default view; wait for the canvases to be drawn.
+    await page.locator('.bp-chart-canvas canvas').first().waitFor({ state: 'visible' });
+    await sleep(600);
+    await page.locator('.bp-chart-canvas canvas').last().waitFor({ state: 'visible' });
     await sleep(600);
     // Crop to the app content itself (drops side margins / trailing space).
     await page.locator('main.bp-page').screenshot({ path: RAW_SHOT });
