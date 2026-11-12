@@ -44,12 +44,15 @@ const SERIES = [
     label: 'Systolic',
     color: '#b91c1c',
     background: '#fee2e2',
+    // Systolic readings get a wider margin than diastolic ones.
+    margin: 10,
   },
   {
     key: 'diastolic',
     label: 'Diastolic',
     color: '#0e7490',
     background: '#cffafe',
+    margin: 5,
   },
 ] as const;
 
@@ -82,10 +85,12 @@ function chartDataFor(key: SeriesKey, label: string, color: string, background: 
 }
 
 // Separate graphs: each series gets its own y-axis window hugging its own
-// data range, which makes pressure changes per value more readable.
-function chartOptionsFor(key: SeriesKey, label: string, legend = false): ChartOptions<'line'> {
+// data range with its own margin, which makes pressure changes per value
+// more readable.
+function chartOptionsFor(key: SeriesKey, label: string, margin: number, legend = false): ChartOptions<'line'> {
   const { min, max } = bpChartBounds(
     valuesFor(key).map((value) => ({ systolic: value, diastolic: value })),
+    margin,
   );
   return {
     responsive: true,
@@ -238,7 +243,7 @@ const stackOptions = computed<ChartOptions<'line'>>(() => {
         >
           <Line
             :data="chartDataFor(series.key, series.label, series.color, series.background)"
-            :options="chartOptionsFor(series.key, series.label)"
+            :options="chartOptionsFor(series.key, series.label, series.margin)"
           />
         </div>
       </template>
