@@ -333,6 +333,27 @@ watch(() => props.records, (records) => {
   outline-offset: 2px;
 }
 
+/* Same base button styling as the header buttons (scoped styles do not
+   cross component boundaries, so they are restated here). */
+.bp-button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid var(--bp-border);
+  background: var(--bp-surface);
+  color: var(--bp-text);
+  cursor: pointer;
+}
+
+.bp-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bp-button:focus-visible {
+  outline: 2px solid var(--bp-accent);
+  outline-offset: 2px;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
