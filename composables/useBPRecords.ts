@@ -261,4 +261,24 @@ export function sortByNewestFirst(list: BPRecord[]): BPRecord[] {
   });
 }
 
+// Y-axis bounds for the chart: the data's lowest/highest value with a
+// margin, snapped to multiples of 5 so the ticks stay readable. Blood
+// pressure changes are much easier to see when the window hugs the data
+// instead of spanning 40–220 mmHg.
+export function bpChartBounds(
+  records: { systolic: number; diastolic: number }[],
+  margin = 15,
+): { min: number; max: number } {
+  const values = records.flatMap((r) => [r.systolic, r.diastolic]);
+  if (!values.length) {
+    return { min: 40, max: 220 };
+  }
+  const roundDown = (v: number) => Math.floor(v / 5) * 5;
+  const roundUp = (v: number) => Math.ceil(v / 5) * 5;
+  return {
+    min: Math.max(0, roundDown(Math.min(...values) - margin)),
+    max: roundUp(Math.max(...values) + margin),
+  };
+}
+
 export { SYNC_TAG };

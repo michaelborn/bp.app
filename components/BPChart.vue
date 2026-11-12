@@ -13,6 +13,7 @@ import {
   type ChartOptions,
 } from 'chart.js';
 import 'chartjs-adapter-date-fns';
+import { bpChartBounds } from '~/composables/useBPRecords';
 
 ChartJS.register(CategoryScale, LinearScale, LineElement, PointElement, Tooltip, Legend, Filler, TimeScale);
 
@@ -57,25 +58,27 @@ const rangeText = computed(() => {
   return `${fmt(cutoff)} – ${fmt(now)}`;
 });
 
-const chartOptions: ChartOptions<'line'> = {
-  responsive: true,
-  maintainAspectRatio: false,
-  interaction: { mode: 'nearest' as const, intersect: false },
-  scales: {
-    x: {
-      type: 'time' as const,
-      time: { unit: 'day', tooltipFormat: 'MMM d, HH:mm' },
-      axis: 'x' as const,
-      title: { display: false },
-      grid: { display: false },
+const chartOptions = computed<ChartOptions<'line'>>(() => {
+  const { min, max } = bpChartBounds(props.records);
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'nearest' as const, intersect: false },
+    scales: {
+      x: {
+        type: 'time' as const,
+        time: { unit: 'day', tooltipFormat: 'MMM d, HH:mm' },
+        axis: 'x' as const,
+        title: { display: false },
+        grid: { display: false },
+      },
+      y: {
+        min,
+        max,
+        title: { display: true, text: 'Blood pressure (mmHg)' },
+      },
     },
-    y: {
-      min: 40,
-      max: 220,
-      title: { display: true, text: 'Blood pressure (mmHg)' },
-    },
-  },
-  plugins: {
+    plugins: {
     legend: { display: true },
     tooltip: {
       callbacks: {
@@ -96,6 +99,7 @@ const chartOptions: ChartOptions<'line'> = {
     },
   },
 };
+});
 </script>
 
 <template>

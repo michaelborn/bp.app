@@ -288,6 +288,28 @@ describe('newest-first sorting', () => {
   });
 });
 
+describe('chart y-axis bounds', () => {
+  it('hugs the data with a margin, snapped to multiples of 5', async () => {
+    const { bpChartBounds } = await import('~/composables/useBPRecords');
+    const records = [
+      { id: '11111111-1111-4111-8111-111111111111', recordedAt: '2026-03-01T00:00:00Z', systolic: 133, diastolic: 86 },
+      { id: '22222222-2222-4222-9222-222222222222', recordedAt: '2026-03-02T00:00:00Z', systolic: 116, diastolic: 75 },
+    ];
+    // data range 75..133; margin 15 -> 60..148 -> snapped to 60..150
+    expect(bpChartBounds(records)).toEqual({ min: 60, max: 150 });
+  });
+
+  it('falls back to the default window without records', async () => {
+    const { bpChartBounds } = await import('~/composables/useBPRecords');
+    expect(bpChartBounds([])).toEqual({ min: 40, max: 220 });
+  });
+
+  it('never returns a negative minimum', async () => {
+    const { bpChartBounds } = await import('~/composables/useBPRecords');
+    expect(bpChartBounds([{ systolic: 12, diastolic: 8 }]).min).toBe(0);
+  });
+});
+
 describe('last-14-days chart filtering', () => {
   it('keeps only records from the latest 14 days including today, chronological', async () => {
     const { last14Days } = await import('~/composables/useBPRecords');
