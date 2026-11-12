@@ -322,19 +322,6 @@ watch(() => props.records, (records) => {
   color: var(--bp-danger);
 }
 
-.bp-button-danger {
-  border-color: #fecaca;
-  background: #fef2f2;
-  color: var(--bp-danger);
-}
-
-.bp-button-danger:focus-visible {
-  outline: 2px solid var(--bp-danger);
-  outline-offset: 2px;
-}
-
-/* Same base button styling as the header buttons (scoped styles do not
-   cross component boundaries, so they are restated here). */
 .bp-button {
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
@@ -353,6 +340,29 @@ watch(() => props.records, (records) => {
   outline: 2px solid var(--bp-accent);
   outline-offset: 2px;
 }
+
+.bp-button-danger {
+  border: none;
+  background: none;
+  padding: 0.25rem 0.5rem;
+  color: var(--bp-danger);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.bp-button-danger:hover {
+  color: #7f1d1d;
+}
+
+.bp-button-danger:focus-visible {
+  outline: 2px solid var(--bp-danger);
+  outline-offset: 2px;
+}
+
+/* Same base button styling as the header buttons (scoped styles do not
+   cross component boundaries, so they are restated here). */
+
 
 .visually-hidden {
   position: absolute;
