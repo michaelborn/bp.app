@@ -5,10 +5,11 @@ A simple, offline-first, self-hosted blood pressure tracker. Record your blood p
 ## Features
 
 - **Record Blood Pressure** — Easily record systolic and diastolic. The timestamp is auto-populated and not (currently) editable.
-- **14-day line graph**
-- **Full history table** — Tab over to the table for every reading, newest
-  first, with a per-row sync badge.
-- **Edit & delete** — The table has an edit mode: every value becomes an
+- **Record Weight** — One decimal place, kg or lb display (a header switcher converts; kilograms stay canonical in the CSV).
+- **14-day line graphs** — Blood pressure (stacked or split systolic/diastolic) and a separate weight graph, each with a y-axis window that hugs the data.
+- **Full history tables** — One tab per metric (Blood pressure / Weight), newest
+  first, with per-row sync badges.
+- **Edit & delete** — The tables have an edit mode: every value becomes an
   input (date included), changes save on blur, and each row gets a delete
   button. Edits and deletions go through the same offline queue and sync
   badges as new records; deletions are tombstoned so they survive offline
@@ -21,8 +22,9 @@ A simple, offline-first, self-hosted blood pressure tracker. Record your blood p
   with a *Waiting to sync* badge until the server acknowledges them.
 - **Idempotent by design** — Every record gets a client-generated UUID;
   double-clicks or sync retries will produce a single row.
-- **Export CSV** — One click downloads your whole history in the same
-  `id,recorded_at,systolic,diastolic` format the server persists.
+- **Export CSV** — One click downloads two separate CSV files, each in the
+  same shape the server persists: `id,recorded_at,systolic,diastolic` and
+  `id,recorded_at,weight` (kg).
 - **Installable PWA** — Standard web manifest, theme colors and icons.
 
 <p align="center">
@@ -43,17 +45,17 @@ Open <http://localhost:3000>, hit **Record BP**, and start logging. To use a
 writable data file during development:
 
 ```console
-$ BP_DATA_FILE=/tmp/bp-records.csv npm run dev
+$ BP_DATA_FILE=/tmp/bp-records.csv BP_WEIGHT_FILE=/tmp/bp-weight.csv npm run dev
 ```
 
 Production build:
 
 ```console
 $ npm run build
-$ BP_DATA_FILE=./data/bp-records.csv node .output/server/index.mjs
+$ BP_DATA_FILE=./data/bp-records.csv BP_WEIGHT_FILE=./data/weight-records.csv node .output/server/index.mjs
 ```
 
-`BP_DATA_FILE` — path to the CSV store (default `/data/bp-records.csv`).
+`BP_DATA_FILE` — path to the blood-pressure CSV (default `/data/bp-records.csv`); `BP_WEIGHT_FILE` — path to the weight CSV (default `/data/weight-records.csv`).
 Keep it on a persistent volume, not the image. Sensible bounds and formats
 are documented in `.env.example`.
 
@@ -64,7 +66,7 @@ image (`docker-compose.yml` provided):
 
 1. `docker compose up -d --build`
 2. Mount a persistent directory at `/data` and set
-   `BP_DATA_FILE=/data/bp-records.csv`.
+   `BP_DATA_FILE=/data/bp-records.csv` and `BP_WEIGHT_FILE=/data/weight-records.csv`.
 3. Put it behind any TLS-terminating reverse proxy. Point your chosen
    hostname at the proxy and forward to the container's `PORT` (3000).
    Hostnames are environment/deployment configuration — keep them out of
