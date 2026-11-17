@@ -32,7 +32,21 @@ export async function waitForServiceWorkerController(page: Page): Promise<void> 
   );
 }
 
+// Header actions are dropdown menus: Record (blood pressure / weight) and
+// Settings (units, graph mode, export). These open them and wait for the
+// menu panel so tests can click items.
+export async function openRecordMenu(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Record', exact: true }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+}
+
+export async function openSettingsMenu(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await expect(page.getByRole('menu')).toBeVisible();
+}
+
 export async function openRecordDialog(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Record BP' }).click();
+  await openRecordMenu(page);
+  await page.getByRole('menuitem', { name: 'Blood pressure' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
 }

@@ -1,6 +1,6 @@
 import { expect, test, type Download } from '@playwright/test';
 
-import { openRecordDialog, waitForServiceWorkerController } from './helpers';
+import { openRecordDialog, openSettingsMenu, waitForServiceWorkerController } from './helpers';
 
 // The suite runs in declaration order against one server (workers: 1), so
 // each step builds deterministically on the previous one.
@@ -17,8 +17,9 @@ test('chart tab is the default view with an empty state', async ({ page }) => {
   await expect(page.getByRole('tabpanel', { name: /chart/i })).toBeVisible();
   await expect(chartTab).toHaveAttribute('aria-selected', 'true');
   await expect(tableTab).toHaveAttribute('aria-selected', 'false');
-  // Record BP sits on the right of the header row.
-  await expect(page.getByRole('button', { name: 'Record BP' })).toBeVisible();
+  // Header carries the Record dropdown (primary) and the settings gear.
+  await expect(page.getByRole('button', { name: 'Record', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Settings' })).toBeVisible();
 });
 
 test('switching tabs shows the table and back again', async ({ page }) => {
@@ -50,6 +51,28 @@ test('arrow keys switch tabs (WAI-ARIA tab pattern)', async ({ page }) => {
   const tableTab = page.getByRole('tab', { name: 'Blood pressure' });
   await expect(tableTab).toHaveAttribute('aria-selected', 'true');
   await expect(tableTab).toBeFocused();
+});
+
+test('Record menu opens both dialogs and closes like a menu', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Record', exact: true }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu.getByRole('menuitem', { name: 'Blood pressure' })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: 'Weight' })).toBeVisible();
+
+  // Weight item opens the weight dialog.
+  await menu.getByRole('menuitem', { name: 'Weight' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText('Weight (kg)')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // Reopening works after a menu-driven dialog closes; Escape dismisses.
+  await page.getByRole('button', { name: 'Record', exact: true }).click();
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
 });
 
 test('Record BP validates input and does not silently discard it', async ({ page }) => {
@@ -139,6 +162,44 @@ test('saving a valid reading syncs it to the server', async ({ page }) => {
   await expect(rows.nth(1).locator('th').first()).not.toHaveText('');
 });
 
+test('unchecked automatic timestamp records a manual date and time', async ({ page }) => {
+  await page.goto('/');
+  await openRecordDialog(page);
+  const dialog = page.getByRole('dialog');
+  const autoCheckbox = dialog.getByRole('checkbox', { name: /recorded automatically/i });
+  await expect(autoCheckbox).toBeChecked();
+  await expect(dialog.locator('[data-test="manual-datetime"]')).toHaveCount(0);
+
+  await autoCheckbox.uncheck();
+  const datetime = dialog.locator('[data-test="manual-datetime"]');
+  await expect(datetime).toBeVisible();
+  // Prefilled with the current moment (non-empty, editable).
+  await expect(datetime).not.toHaveValue('');
+
+  // An empty manual date is rejected inline.
+  await datetime.fill('');
+  await dialog.getByLabel('Systolic (mmHg)').fill('118');
+  await dialog.getByLabel('Diastolic (mmHg)').fill('76');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('Enter a valid date and time.');
+  await expect(dialog).toBeVisible();
+
+  // A valid back-dated reading saves with the entered timestamp.
+  await datetime.fill('2026-11-01T08:30');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved on this device.')).toBeVisible();
+
+  await expect
+    .poll(async () => {
+      return page.evaluate(async () => {
+        const expected = new Date('2026-11-01T08:30').toISOString();
+        const records = (await (await fetch('/api/records')).json()) as { systolic: number; recordedAt: string }[];
+        return records.some((r) => r.systolic === 118 && r.recordedAt === expected);
+      });
+    }, { timeout: 10_000 })
+    .toBe(true);
+});
+
 test('Export CSV downloads two separate files (blood pressure + weight)', async ({ page }) => {
   await page.goto('/');
   // Fresh context: records come from the server after the initial pull.
@@ -146,7 +207,9 @@ test('Export CSV downloads two separate files (blood pressure + weight)', async 
   const rows = page.getByRole('table').getByRole('row');
   await expect.poll(() => rows.count(), { timeout: 10_000 }).toBeGreaterThan(2);
 
-  const exportButton = page.getByRole('button', { name: 'Export CSV' });
+  // Export lives in the settings menu.
+  await openSettingsMenu(page);
+  const exportButton = page.locator('[data-test="export-csv"]');
   await expect(exportButton).toBeEnabled();
 
   // Predicate-based waits: each waits for its own filename, so both downloads
@@ -407,33 +470,35 @@ test.describe('table edit mode', () => {
 test.describe('chart mode toggle', () => {
   test('toggles between split graphs and the stacked graph', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Stack graph' }).waitFor();
-
-    // Default: split — two canvases.
+    // Default: split — two canvases, settings offers to stack.
     await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(2);
+    await openSettingsMenu(page);
+    const graphToggle = page.locator('[data-test="graph-toggle"]');
+    await expect(graphToggle).toHaveText('Stack graph');
 
-    // Toggle to stack: one canvas showing both series (legend visible).
-    await page.getByRole('button', { name: 'Stack graph' }).click();
+    // Stack: one canvas showing both series; the item flips its label.
+    await graphToggle.click();
     await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Split graph' })).toBeVisible();
-    await expect(page.locator('.bp-chart-canvas')).toContainText('');
 
-    // Back to split.
-    await page.getByRole('button', { name: 'Split graph' }).click();
+    await openSettingsMenu(page);
+    await expect(graphToggle).toHaveText('Split graph');
+    await graphToggle.click();
     await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(2);
   });
 
   test('the chosen mode persists across reloads', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'Stack graph' }).click();
+    await openSettingsMenu(page);
+    await page.locator('[data-test="graph-toggle"]').click();
     await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(1);
 
     await page.reload();
     await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Split graph' })).toBeVisible();
+    await openSettingsMenu(page);
+    await expect(page.locator('[data-test="graph-toggle"]')).toHaveText('Split graph');
 
     // Restore the default for later tests.
-    await page.getByRole('button', { name: 'Split graph' }).click();
+    await page.locator('[data-test="graph-toggle"]').click();
     await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(2);
   });
 });
@@ -486,18 +551,21 @@ test.describe('weight tracking', () => {
     await dialog.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Saved on this device.')).toBeVisible();
 
-    // The toggle's accessible name comes from its aria-label ("Show weight in
-    // pounds"/"kilograms"), so locate it via data-test and assert the label
-    // text instead.
+    // The toggle lives in the settings menu; its aria-label ("Show weight in
+    // pounds"/"kilograms") overrides the visible text, so locate it via
+    // data-test and assert the label text instead.
+    await openSettingsMenu(page);
     const unitToggle = page.locator('[data-test="unit-toggle"]');
     await unitToggle.click();
-    await expect(unitToggle).toHaveText('Units: lb');
     const row = page.getByRole('table').getByRole('row').nth(1);
     await expect(row).toContainText(/19[0-9]\.\d/); // ~198.0 lb
 
     // The switch survives a reload.
     await page.reload();
-    await expect(unitToggle).toHaveText('Units: lb');
+    await openSettingsMenu(page);
+    await expect(page.locator('[data-test="unit-toggle"]')).toHaveText('Units: lb');
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
 
     // Record a pound value: the server stores kilograms (canonical).
     await page.getByRole('button', { name: 'Record weight' }).click();
@@ -517,8 +585,32 @@ test.describe('weight tracking', () => {
       .toBe(true);
 
     // Back to kilograms: values show converted (77.1 kg).
+    await openSettingsMenu(page);
     await page.locator('[data-test="unit-toggle"]').click();
     await expect(page.getByRole('table').getByRole('row').nth(1)).toContainText('77.1');
+  });
+
+  test('manual date and time works for weigh-ins via the header Record menu', async ({ page }) => {
+    await page.getByRole('button', { name: 'Record', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Weight' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Weight (kg)')).toBeVisible();
+
+    await dialog.getByRole('checkbox', { name: /recorded automatically/i }).uncheck();
+    await dialog.locator('[data-test="manual-datetime"]').fill('2026-11-02T07:15');
+    await dialog.locator('[data-test="weight-input"]').fill('87.3');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByText('Saved on this device.')).toBeVisible();
+
+    await expect
+      .poll(async () => {
+        return page.evaluate(async () => {
+          const expected = new Date('2026-11-02T07:15').toISOString();
+          const records = (await (await fetch('/api/weight')).json()) as { weight: number; recordedAt: string }[];
+          return records.some((r) => r.weight === 87.3 && r.recordedAt === expected);
+        });
+      }, { timeout: 10_000 })
+      .toBe(true);
   });
 
   test('weight edit and delete sync like blood pressure', async ({ page }) => {
