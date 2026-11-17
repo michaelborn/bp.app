@@ -22,21 +22,10 @@ const props = defineProps<{
 }>();
 
 // 'split' = separate systolic/diastolic graphs; 'stack' = both series on
-// one shared-axis chart. The choice persists in localStorage.
-const chartMode = ref<'split' | 'stack'>('split');
+// one shared-axis chart. Owned by the page (persisted there) and passed
+// down via v-model; the toggle itself lives in the header settings menu.
+const chartMode = defineModel<'split' | 'stack'>('mode', { default: 'split' });
 const isSplit = computed(() => chartMode.value === 'split');
-
-onMounted(() => {
-  const saved = window.localStorage.getItem('bp-chart-mode');
-  if (saved === 'split' || saved === 'stack') {
-    chartMode.value = saved;
-  }
-});
-
-function toggleChartMode() {
-  chartMode.value = isSplit.value ? 'stack' : 'split';
-  window.localStorage.setItem('bp-chart-mode', chartMode.value);
-}
 
 const SERIES = [
   {
@@ -215,15 +204,6 @@ const stackOptions = computed<ChartOptions<'line'>>(() => {
       <h2 id="bp-chart-heading" class="bp-chart-h">Blood pressure — last two weeks</h2>
       <div class="bp-chart-heading-right">
         <p class="bp-chart-range">{{ rangeText }}</p>
-        <button
-          type="button"
-          class="bp-button"
-          data-test="chart-mode-toggle"
-          :aria-pressed="!isSplit"
-          @click="toggleChartMode"
-        >
-          {{ isSplit ? 'Stack graph' : 'Split graph' }}
-        </button>
       </div>
     </div>
 

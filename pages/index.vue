@@ -5,6 +5,7 @@ import RecordBPDialog from '~/components/RecordBPDialog.vue';
 import RecordWeightDialog from '~/components/RecordWeightDialog.vue';
 import BPRecordsTable from '~/components/BPRecordsTable.vue';
 import WeightRecordsTable from '~/components/WeightRecordsTable.vue';
+import HeaderMenu from '~/components/HeaderMenu.vue';
 import { useBPRecords } from '~/composables/useBPRecords';
 import { useWeightRecords } from '~/composables/useWeightRecords';
 import { useWeightUnits } from '~/composables/useWeightUnits';
@@ -26,6 +27,17 @@ const VIEW_STORAGE_KEY = 'bp-active-view';
 // Read in onMounted (not setup) so SSR and hydration agree on 'chart' first.
 const currentView = ref<ViewName>('chart');
 watch(currentView, (view) => window.localStorage.setItem(VIEW_STORAGE_KEY, view));
+
+// BP chart stack/split mode, toggled from the settings menu and persisted
+// (previously owned by BPChart itself).
+const CHART_MODE_STORAGE_KEY = 'bp-chart-mode';
+const chartMode = ref<'split' | 'stack'>('split');
+watch(chartMode, (mode) => window.localStorage.setItem(CHART_MODE_STORAGE_KEY, mode));
+
+function toggleChartMode() {
+  chartMode.value = chartMode.value === 'split' ? 'stack' : 'split';
+}
+
 const recordDialogOpen = ref(false);
 const weightDialogOpen = ref(false);
 const lastSavedResult = ref<'local' | 'offline' | null>(null);
@@ -39,6 +51,10 @@ onMounted(() => {
   const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
   if (VIEW_ORDER.includes(saved as ViewName)) {
     currentView.value = saved as ViewName;
+  }
+  const savedChartMode = window.localStorage.getItem(CHART_MODE_STORAGE_KEY);
+  if (savedChartMode === 'split' || savedChartMode === 'stack') {
+    chartMode.value = savedChartMode;
   }
   bp.initialize();
   weight.initialize();
@@ -66,15 +82,19 @@ function openWeightDialog() {
   weightDialogOpen.value = true;
 }
 
-async function handleSave(payload: { systolic: number; diastolic: number }) {
+async function handleSave(payload: { systolic: number; diastolic: number; recordedAt: string }) {
   const wasOffline = !navigator.onLine;
-  await bp.saveRecord({ systolic: payload.systolic, diastolic: payload.diastolic });
+  await bp.saveRecord({
+    systolic: payload.systolic,
+    diastolic: payload.diastolic,
+    recordedAt: payload.recordedAt,
+  });
   lastSavedResult.value = wasOffline ? 'offline' : 'local';
 }
 
-async function handleWeightSave(payload: { weightKg: number }) {
+async function handleWeightSave(payload: { weightKg: number; recordedAt: string }) {
   const wasOffline = !navigator.onLine;
-  await weight.saveRecord({ weight: payload.weightKg });
+  await weight.saveRecord({ weight: payload.weightKg, recordedAt: payload.recordedAt });
   lastSavedResult.value = wasOffline ? 'offline' : 'local';
 }
 
@@ -179,27 +199,37 @@ const exportDisabled = computed(() => !bp.sortedRecords.value.length && !weight.
           </p>
         </div>
         <div class="bp-header-actions">
-          <button
-            type="button"
-            class="bp-button"
-            data-test="unit-toggle"
-            :aria-label="`Show weight in ${unit === 'kg' ? 'pounds' : 'kilograms'}`"
-            @click="toggleUnit"
-          >
-            Units: {{ unit }}
-          </button>
-          <button
-            type="button"
-            class="bp-button"
-            data-test="export-csv"
-            :disabled="exportDisabled"
-            @click="exportCsv"
-          >
-            Export CSV
-          </button>
-          <button type="button" class="bp-button bp-button-primary" data-test="record-bp" @click="openRecordDialog">
-            Record BP
-          </button>
+          <HeaderMenu text="Record" icon="hamburger" variant="primary" data-test="record-menu">
+            <button type="button" role="menuitem" data-test="menu-record-bp" @click="openRecordDialog">
+              Blood pressure
+            </button>
+            <button type="button" role="menuitem" data-test="menu-record-weight" @click="openWeightDialog">
+              Weight
+            </button>
+          </HeaderMenu>
+          <HeaderMenu icon="gear" aria-label="Settings" data-test="settings-menu">
+            <button
+              type="button"
+              role="menuitem"
+              data-test="unit-toggle"
+              :aria-label="`Show weight in ${unit === 'kg' ? 'pounds' : 'kilograms'}`"
+              @click="toggleUnit"
+            >
+              Units: {{ unit }}
+            </button>
+            <button type="button" role="menuitem" data-test="graph-toggle" @click="toggleChartMode">
+              {{ chartMode === 'split' ? 'Stack graph' : 'Split graph' }}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              data-test="export-csv"
+              :disabled="exportDisabled"
+              @click="exportCsv"
+            >
+              Export CSV
+            </button>
+          </HeaderMenu>
         </div>
       </div>
 
@@ -269,7 +299,7 @@ const exportDisabled = computed(() => !bp.sortedRecords.value.length && !weight.
         aria-labelledby="tab-chart"
         data-test="panel-chart"
       >
-        <BPChart :records="bp.chartRecords.value" />
+        <BPChart v-model:mode="chartMode" :records="bp.chartRecords.value" />
         <WeightChart :records="weight.chartRecords.value" />
       </div>
       <div
@@ -415,12 +445,6 @@ const exportDisabled = computed(() => !bp.sortedRecords.value.length && !weight.
   gap: 0.5rem;
   flex-wrap: wrap;
   align-items: center;
-}
-
-.bp-button-primary {
-  background: var(--bp-accent);
-  border-color: var(--bp-accent);
-  color: var(--bp-accent-contrast);
 }
 
 .bp-save-feedback {
