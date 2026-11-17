@@ -1,25 +1,47 @@
 <script setup lang="ts">
 import BPChart from '~/components/BPChart.vue';
+import WeightChart from '~/components/WeightChart.vue';
 import RecordBPDialog from '~/components/RecordBPDialog.vue';
+import RecordWeightDialog from '~/components/RecordWeightDialog.vue';
 import BPRecordsTable from '~/components/BPRecordsTable.vue';
+import WeightRecordsTable from '~/components/WeightRecordsTable.vue';
 import { useBPRecords } from '~/composables/useBPRecords';
+import { useWeightRecords } from '~/composables/useWeightRecords';
+import { useWeightUnits } from '~/composables/useWeightUnits';
 
 definePageMeta({
   name: 'index',
 });
 
-type ViewName = 'chart' | 'table';
+type ViewName = 'chart' | 'blood-pressure' | 'weight';
 
-const { chartRecords, sortedRecords, pendingIds, loading, syncStatus, isOnline, hasPending, initialize, saveRecord, updateRecord, deleteRecord, startSync, lastSyncedAt } = useBPRecords();
+const bp = useBPRecords();
+const weight = useWeightRecords();
+const { unit, toggleUnit } = useWeightUnits();
 
+const VIEW_ORDER: ViewName[] = ['chart', 'blood-pressure', 'weight'];
+const VIEW_STORAGE_KEY = 'bp-active-view';
+
+// The active tab persists across reloads, like the chart stack/split toggle.
+// Read in onMounted (not setup) so SSR and hydration agree on 'chart' first.
 const currentView = ref<ViewName>('chart');
+watch(currentView, (view) => window.localStorage.setItem(VIEW_STORAGE_KEY, view));
 const recordDialogOpen = ref(false);
+const weightDialogOpen = ref(false);
 const lastSavedResult = ref<'local' | 'offline' | null>(null);
-const chartTab = ref<HTMLButtonElement | null>(null);
-const tableTab = ref<HTMLButtonElement | null>(null);
+const tabRefs = ref<Record<ViewName, HTMLButtonElement | null>>({
+  chart: null,
+  'blood-pressure': null,
+  weight: null,
+});
 
 onMounted(() => {
-  initialize();
+  const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
+  if (VIEW_ORDER.includes(saved as ViewName)) {
+    currentView.value = saved as ViewName;
+  }
+  bp.initialize();
+  weight.initialize();
 });
 
 // Arrow-key navigation between tabs (WAI-ARIA tabs pattern).
@@ -28,11 +50,10 @@ function onTabKeydown(event: KeyboardEvent) {
     return;
   }
   event.preventDefault();
-  const next: ViewName = currentView.value === 'chart' ? 'table' : 'chart';
+  const index = VIEW_ORDER.indexOf(currentView.value);
+  const next = VIEW_ORDER[(index + (event.key === 'ArrowRight' ? 1 : VIEW_ORDER.length - 1)) % VIEW_ORDER.length];
   currentView.value = next;
-  nextTick(() => {
-    (next === 'table' ? tableTab.value : chartTab.value)?.focus();
-  });
+  nextTick(() => tabRefs.value[next]?.focus());
 }
 
 function openRecordDialog() {
@@ -40,28 +61,58 @@ function openRecordDialog() {
   recordDialogOpen.value = true;
 }
 
+function openWeightDialog() {
+  lastSavedResult.value = null;
+  weightDialogOpen.value = true;
+}
+
 async function handleSave(payload: { systolic: number; diastolic: number }) {
   const wasOffline = !navigator.onLine;
-  await saveRecord(payload.systolic, payload.diastolic);
+  await bp.saveRecord({ systolic: payload.systolic, diastolic: payload.diastolic });
   lastSavedResult.value = wasOffline ? 'offline' : 'local';
 }
 
+async function handleWeightSave(payload: { weightKg: number }) {
+  const wasOffline = !navigator.onLine;
+  await weight.saveRecord({ weight: payload.weightKg });
+  lastSavedResult.value = wasOffline ? 'offline' : 'local';
+}
+
+// Combined sync status line: the header reflects whichever collection has
+// outstanding work; "Synced" only when everything is acknowledged.
+// Combined status for the header dot: any waiting/offline/error wins over
+// "synced".
+const syncStatusData = computed(() => {
+  if (bp.syncStatus.value === 'error' || weight.syncStatus.value === 'error') {
+    return 'error';
+  }
+  if (!bp.isOnline.value || !weight.isOnline.value) {
+    return 'offline';
+  }
+  if (bp.syncStatus.value === 'waiting' || weight.syncStatus.value === 'waiting') {
+    return 'waiting';
+  }
+  return 'synced';
+});
+
 const syncStatusText = computed(() => {
-  if (!isOnline.value) {
-    return hasPending.value ? 'Waiting to sync' : 'Offline — showing records saved on this device';
+  if (!bp.isOnline.value || !weight.isOnline.value) {
+    return bp.hasPending.value || weight.hasPending.value
+      ? 'Waiting to sync'
+      : 'Offline — showing records saved on this device';
   }
-  switch (syncStatus.value) {
-    case 'waiting':
-      return 'Waiting to sync';
-    case 'error':
-      return 'Sync error — will retry';
-    case 'offline':
-      return 'Waiting to sync';
-    default:
-      return lastSyncedAt.value
-        ? `Synced ${formatRelativeTime(lastSyncedAt.value)}`
-        : 'Synced';
+  if (bp.syncStatus.value === 'error' || weight.syncStatus.value === 'error') {
+    return 'Sync error — will retry';
   }
+  if (bp.syncStatus.value === 'waiting' || weight.syncStatus.value === 'waiting') {
+    return 'Waiting to sync';
+  }
+  const timestamps = [bp.lastSyncedAt.value, weight.lastSyncedAt.value].filter(Boolean) as string[];
+  if (!timestamps.length) {
+    return 'Synced';
+  }
+  const newest = timestamps.reduce((a, b) => (a > b ? a : b));
+  return `Synced ${formatRelativeTime(newest)}`;
 });
 
 function formatRelativeTime(iso: string): string {
@@ -75,22 +126,46 @@ function formatRelativeTime(iso: string): string {
   return new Date(iso).toLocaleString();
 }
 
-// Downloads every stored record as a CSV file with the same shape the
-// server persists: id,recorded_at,systolic,diastolic.
-function exportCsv(): void {
-  const rows = sortedRecords.value.map((record) => {
-    const cells = [record.id, record.recordedAt, String(record.systolic), String(record.diastolic)];
-    return cells.map((cell) => (/[",\r\n]/.test(cell) ? '"' + cell.replace(/"/g, '""') + '"' : cell)).join(',');
-  });
-  const csv = ['id,recorded_at,systolic,diastolic', ...rows].join('\n') + '\n';
+// CSV serialization shared by both exports (RFC 4180).
+function csvRows(records: Record<string, unknown>[], columns: string[]): string[] {
+  return records.map((record) =>
+    columns
+      .map((column) => {
+        const cell = String(record[column]);
+        return /[",\r\n]/.test(cell) ? '"' + cell.replace(/"/g, '""') + '"' : cell;
+      })
+      .join(','),
+  );
+}
+
+function downloadCsv(filename: string, header: string, rows: string[]): void {
+  const csv = [header, ...rows].join('\n') + '\n';
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
-  anchor.download = `bp-app-records-${new Date().toISOString().slice(0, 10)}.csv`;
+  anchor.download = filename;
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
+
+// One click exports both collections as separate CSV files, each in the
+// same shape the server persists. Weights stay canonical (kg).
+function exportCsv(): void {
+  const date = new Date().toISOString().slice(0, 10);
+  downloadCsv(
+    `bp-app-bloodpressure-${date}.csv`,
+    'id,recorded_at,systolic,diastolic',
+    csvRows(bp.sortedRecords.value, ['id', 'recordedAt', 'systolic', 'diastolic']),
+  );
+  downloadCsv(
+    `bp-app-weight-${date}.csv`,
+    'id,recorded_at,weight',
+    csvRows(weight.sortedRecords.value, ['id', 'recordedAt', 'weight']),
+  );
+}
+
+const exportDisabled = computed(() => !bp.sortedRecords.value.length && !weight.sortedRecords.value.length);
 </script>
 
 <template>
@@ -99,7 +174,7 @@ function exportCsv(): void {
       <div class="bp-header-row">
         <div class="bp-header-left">
           <h1 class="bp-title">bp.app</h1>
-          <p class="bp-sync" :data-status="syncStatus" role="status">
+          <p class="bp-sync" :data-status="syncStatusData" role="status" data-test="sync-status">
             <span class="bp-sync-dot" aria-hidden="true" /> {{ syncStatusText }}
           </p>
         </div>
@@ -107,8 +182,17 @@ function exportCsv(): void {
           <button
             type="button"
             class="bp-button"
+            data-test="unit-toggle"
+            :aria-label="`Show weight in ${unit === 'kg' ? 'pounds' : 'kilograms'}`"
+            @click="toggleUnit"
+          >
+            Units: {{ unit }}
+          </button>
+          <button
+            type="button"
+            class="bp-button"
             data-test="export-csv"
-            :disabled="!sortedRecords.length"
+            :disabled="exportDisabled"
             @click="exportCsv"
           >
             Export CSV
@@ -122,7 +206,7 @@ function exportCsv(): void {
       <nav class="bp-tabs" role="tablist" aria-label="Record views" @keydown="onTabKeydown">
         <button
           id="tab-chart"
-          ref="chartTab"
+          :ref="(el) => (tabRefs.chart = el as HTMLButtonElement)"
           type="button"
           role="tab"
           class="bp-tab"
@@ -135,18 +219,32 @@ function exportCsv(): void {
           Chart
         </button>
         <button
-          id="tab-table"
-          ref="tableTab"
+          id="tab-blood-pressure"
+          :ref="(el) => (tabRefs['blood-pressure'] = el as HTMLButtonElement)"
           type="button"
           role="tab"
           class="bp-tab"
-          :class="{ 'bp-tab-active': currentView === 'table' }"
-          :aria-selected="currentView === 'table'"
-          :tabindex="currentView === 'table' ? 0 : -1"
-          data-test="tab-table"
-          @click="currentView = 'table'"
+          :class="{ 'bp-tab-active': currentView === 'blood-pressure' }"
+          :aria-selected="currentView === 'blood-pressure'"
+          :tabindex="currentView === 'blood-pressure' ? 0 : -1"
+          data-test="tab-blood-pressure"
+          @click="currentView = 'blood-pressure'"
         >
-          Table
+          Blood pressure
+        </button>
+        <button
+          id="tab-weight"
+          :ref="(el) => (tabRefs.weight = el as HTMLButtonElement)"
+          type="button"
+          role="tab"
+          class="bp-tab"
+          :class="{ 'bp-tab-active': currentView === 'weight' }"
+          :aria-selected="currentView === 'weight'"
+          :tabindex="currentView === 'weight' ? 0 : -1"
+          data-test="tab-weight"
+          @click="currentView = 'weight'"
+        >
+          Weight
         </button>
       </nav>
     </header>
@@ -160,7 +258,7 @@ function exportCsv(): void {
       </template>
     </p>
 
-    <section v-if="loading" class="bp-notice" aria-live="polite">
+    <section v-if="bp.loading.value || weight.loading.value" class="bp-notice" aria-live="polite">
       Loading records…
     </section>
 
@@ -171,19 +269,34 @@ function exportCsv(): void {
         aria-labelledby="tab-chart"
         data-test="panel-chart"
       >
-        <BPChart :records="chartRecords" />
+        <BPChart :records="bp.chartRecords.value" />
+        <WeightChart :records="weight.chartRecords.value" />
       </div>
       <div
-        v-show="currentView === 'table'"
+        v-show="currentView === 'blood-pressure'"
         role="tabpanel"
-        aria-labelledby="tab-table"
-        data-test="panel-table"
+        aria-labelledby="tab-blood-pressure"
+        data-test="panel-blood-pressure"
       >
         <BPRecordsTable
-          :records="sortedRecords"
-          :pending-ids="pendingIds ?? undefined"
-          @update-record="updateRecord"
-          @delete-record="deleteRecord"
+          :records="bp.sortedRecords.value"
+          :pending-ids="bp.pendingIds.value ?? undefined"
+          @update-record="bp.updateRecord"
+          @delete-record="bp.deleteRecord"
+        />
+      </div>
+      <div
+        v-show="currentView === 'weight'"
+        role="tabpanel"
+        aria-labelledby="tab-weight"
+        data-test="panel-weight"
+      >
+        <WeightRecordsTable
+          :records="weight.sortedRecords.value"
+          :pending-ids="weight.pendingIds.value ?? undefined"
+          @record="openWeightDialog"
+          @update-record="weight.updateRecord"
+          @delete-record="weight.deleteRecord"
         />
       </div>
     </template>
@@ -191,6 +304,11 @@ function exportCsv(): void {
     <RecordBPDialog
       v-model:open="recordDialogOpen"
       @save="handleSave"
+    />
+
+    <RecordWeightDialog
+      v-model:open="weightDialogOpen"
+      @save="handleWeightSave"
     />
   </main>
 </template>
