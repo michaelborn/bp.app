@@ -14,6 +14,7 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 # Records persist on the mounted /data volume (see docker-compose.yml).
 ENV BP_DATA_FILE=/data/bp-records.csv
+ENV BP_WEIGHT_FILE=/data/weight-records.csv
 
 COPY --from=build /app/.output ./.output
 

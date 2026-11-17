@@ -7,6 +7,7 @@ services:
     environment:
       # Must match the mounted volume path.
       BP_DATA_FILE: /data/bp-records.csv
+      BP_WEIGHT_FILE: /data/weight-records.csv
     volumes:
       # Persistent CSV storage on the host; create ./data before first run.
       - ./data:/data

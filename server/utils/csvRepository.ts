@@ -36,7 +36,7 @@ export function serializeCsvRows(records: BPRecord[]): string {
   return [CSV_HEADER, ...records.map(serializeRecordLine)].join('\n') + '\n';
 }
 
-function serializeCsvRow(cells: string[]): string {
+export function serializeCsvRow(cells: string[]): string {
   return cells.map((cell) => (/[",\r\n]/.test(cell) ? '"' + cell.replace(/"/g, '""') + '"' : cell)).join(',');
 }
 
@@ -265,7 +265,10 @@ export function dedupeById(records: BPRecord[]): BPRecord[] {
   return [...seen.values()];
 }
 
-export function compareRecordsNewestFirst(a: BPRecord, b: BPRecord): number {
+export function compareRecordsNewestFirst(
+  a: { id: string; recordedAt: string },
+  b: { id: string; recordedAt: string },
+): number {
   if (a.recordedAt === b.recordedAt) {
     return a.id < b.id ? 1 : -1;
   }
