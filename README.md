@@ -4,8 +4,11 @@ A simple, offline-first, self-hosted blood pressure tracker. Record your blood p
 
 ## Features
 
-- **Record Blood Pressure** — Easily record systolic and diastolic. The timestamp is auto-populated and not (currently) editable.
-- **Record Weight** — One decimal place, kg or lb display (a header switcher converts; kilograms stay canonical in the CSV).
+- **Record Blood Pressure / Weight** — From the header **Record** menu (weight
+  also has a button on its own screen). The timestamp is recorded
+  automatically by default; uncheck the box to back-date a reading with a
+  date & time picker. Weight takes one decimal place, kg or lb display
+  (kilograms stay canonical in the CSV).
 - **14-day line graphs** — Blood pressure (stacked or split systolic/diastolic) and a separate weight graph, each with a y-axis window that hugs the data.
 - **Full history tables** — One tab per metric (Blood pressure / Weight), newest
   first, with per-row sync badges.
@@ -22,6 +25,8 @@ A simple, offline-first, self-hosted blood pressure tracker. Record your blood p
   with a *Waiting to sync* badge until the server acknowledges them.
 - **Idempotent by design** — Every record gets a client-generated UUID;
   double-clicks or sync retries will produce a single row.
+- **Settings menu** — The gear in the header collects the kg/lb unit
+  switcher, the blood pressure graph stack/split mode, and CSV export.
 - **Export CSV** — One click downloads two separate CSV files, each in the
   same shape the server persists: `id,recorded_at,systolic,diastolic` and
   `id,recorded_at,weight` (kg).
