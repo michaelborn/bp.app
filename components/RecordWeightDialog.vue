@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { WEIGHT_MAX_KG, WEIGHT_MIN_KG } from '#shared/utils/weight-validation';
 import { useWeightUnits } from '~/composables/useWeightUnits';
+import { useManualTimestamp } from '~/composables/useManualTimestamp';
 
 const open = defineModel<boolean>('open', { default: false });
 
 const emit = defineEmits<{
-  (e: 'save', payload: { weightKg: number }): void;
+  (e: 'save', payload: { weightKg: number; recordedAt: string }): void;
   (e: 'close'): void;
 }>();
 
@@ -14,10 +15,19 @@ const { unit, toDisplay, fromDisplay } = useWeightUnits();
 const weightInput = ref<string>('');
 const errorMessage = ref<string | null>(null);
 const weightField = ref<HTMLInputElement | null>(null);
+// Destructured to top-level bindings so the refs auto-unwrap in the
+// template (nested refs inside a plain object would not).
+const {
+  automatic: automaticTimestamp,
+  manual: manualTimestamp,
+  reset: resetTimestamp,
+  resolve: resolveTimestamp,
+} = useManualTimestamp();
 
 function resetForm() {
   weightInput.value = '';
   errorMessage.value = null;
+  resetTimestamp();
 }
 
 watch(open, (isOpen) => {
@@ -65,7 +75,12 @@ function submit() {
     return;
   }
   errorMessage.value = null;
-  emit('save', { weightKg: fromDisplay(value) });
+  const resolved = resolveTimestamp();
+  if (!resolved.ok) {
+    errorMessage.value = resolved.error;
+    return;
+  }
+  emit('save', { weightKg: fromDisplay(value), recordedAt: resolved.recordedAt });
   close();
 }
 </script>
@@ -100,7 +115,27 @@ function submit() {
             >
           </label>
 
-          <p class="bp-hint">Date and time are recorded automatically.</p>
+          <label class="bp-checkbox">
+            <input
+              v-model="automaticTimestamp"
+              type="checkbox"
+              data-test="auto-timestamp"
+            >
+            <span>Date and time are recorded automatically</span>
+          </label>
+
+          <div v-if="!automaticTimestamp" class="bp-field">
+            <span class="bp-field-label">Date &amp; time</span>
+            <input
+              v-model="manualTimestamp"
+              class="bp-input"
+              type="datetime-local"
+              step="1"
+              name="recordedAt"
+              autocomplete="off"
+              data-test="manual-datetime"
+            >
+          </div>
 
           <p
             v-if="errorMessage"
@@ -192,10 +227,18 @@ input[type='number'] {
   appearance: textfield;
 }
 
-.bp-hint {
+.bp-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
   font-size: 0.8125rem;
   color: var(--bp-muted);
+}
+
+.bp-checkbox input {
+  accent-color: var(--bp-accent);
+  margin: 0;
 }
 
 .bp-error {

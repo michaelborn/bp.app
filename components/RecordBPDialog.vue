@@ -1,16 +1,25 @@
 <script setup lang="ts">
 import { validateBPInput } from '#shared/utils/record-validation';
+import { useManualTimestamp } from '~/composables/useManualTimestamp';
 
 const open = defineModel<boolean>('open', { default: false });
 
 const emit = defineEmits<{
-  (e: 'save', payload: { systolic: number; diastolic: number }): void;
+  (e: 'save', payload: { systolic: number; diastolic: number; recordedAt: string }): void;
   (e: 'close'): void;
 }>();
 
 const systolic = ref<string>('');
 const diastolic = ref<string>('');
 const errorMessage = ref<string | null>(null);
+// Destructured to top-level bindings so the refs auto-unwrap in the
+// template (nested refs inside a plain object would not).
+const {
+  automatic: automaticTimestamp,
+  manual: manualTimestamp,
+  reset: resetTimestamp,
+  resolve: resolveTimestamp,
+} = useManualTimestamp();
 
 const systolicInput = ref<HTMLInputElement | null>(null);
 
@@ -18,6 +27,7 @@ function resetForm() {
   systolic.value = '';
   diastolic.value = '';
   errorMessage.value = null;
+  resetTimestamp();
 }
 
 watch(open, (isOpen) => {
@@ -47,8 +57,17 @@ function submit() {
     errorMessage.value = parsing.error ?? 'Enter valid readings.';
     return;
   }
+  const resolved = resolveTimestamp();
+  if (!resolved.ok) {
+    errorMessage.value = resolved.error;
+    return;
+  }
   errorMessage.value = null;
-  emit('save', { systolic: Number(systolic.value), diastolic: Number(diastolic.value) });
+  emit('save', {
+    systolic: Number(systolic.value),
+    diastolic: Number(diastolic.value),
+    recordedAt: resolved.recordedAt,
+  });
   close();
 }
 </script>
@@ -96,7 +115,27 @@ function submit() {
             </label>
           </div>
 
-          <p class="bp-hint">Date and time are recorded automatically.</p>
+          <label class="bp-checkbox">
+            <input
+              v-model="automaticTimestamp"
+              type="checkbox"
+              data-test="auto-timestamp"
+            >
+            <span>Date and time are recorded automatically</span>
+          </label>
+
+          <div v-if="!automaticTimestamp" class="bp-field">
+            <span class="bp-field-label">Date &amp; time</span>
+            <input
+              v-model="manualTimestamp"
+              class="bp-input"
+              type="datetime-local"
+              step="1"
+              name="recordedAt"
+              autocomplete="off"
+              data-test="manual-datetime"
+            >
+          </div>
 
           <p
             v-if="errorMessage"
@@ -198,10 +237,18 @@ input[type='number'] {
   appearance: textfield;
 }
 
-.bp-hint {
+.bp-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
   font-size: 0.8125rem;
   color: var(--bp-muted);
+}
+
+.bp-checkbox input {
+  accent-color: var(--bp-accent);
+  margin: 0;
 }
 
 .bp-error {

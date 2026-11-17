@@ -41,7 +41,10 @@ export type CollectionConfig<T extends { id: string; recordedAt: string }> = {
   api: RemoteApi<T>;
 };
 
-type RecordFields<T> = Partial<Omit<T, 'id' | 'recordedAt'>>;
+// Fields a caller may pass to saveRecord. recordedAt is optional: omitted,
+// it defaults to the moment of the save (dialog default); the dialogs pass
+// an explicit one when the user back-dates via the manual datetime input.
+type RecordFields<T> = Partial<Omit<T, 'id'>>;
 
 export function createRecordsCollection<T extends { id: string; recordedAt: string }>(
   config: CollectionConfig<T>,
