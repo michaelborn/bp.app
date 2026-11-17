@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Download } from '@playwright/test';
 
 import { openRecordDialog, waitForServiceWorkerController } from './helpers';
 
@@ -9,7 +9,7 @@ test('chart tab is the default view with an empty state', async ({ page }) => {
     await page.goto('/');
 
   const chartTab = page.getByRole('tab', { name: 'Chart' });
-  const tableTab = page.getByRole('tab', { name: 'Table' });
+  const tableTab = page.getByRole('tab', { name: 'Blood pressure' });
 
   // Fresh server: chart shows the empty state.
   await expect(page.getByText('No readings in the last two weeks.')).toBeVisible();
@@ -23,11 +23,18 @@ test('chart tab is the default view with an empty state', async ({ page }) => {
 
 test('switching tabs shows the table and back again', async ({ page }) => {
     await page.goto('/');
-  await page.getByRole('tab', { name: 'Table' }).click();
-  await expect(page.getByRole('tab', { name: 'Table' })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tabpanel', { name: /table/i })).toBeVisible();
+  await page.getByRole('tab', { name: 'Blood pressure' }).click();
+  await expect(page.getByRole('tab', { name: 'Blood pressure' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: /blood pressure/i })).toBeVisible();
   // No readings yet: table view shows its empty state instead of a table.
   await expect(page.getByText('No readings yet.')).toBeVisible();
+
+  // Weight tab has its own screen, record button and table.
+  await page.getByRole('tab', { name: 'Weight' }).click();
+  await expect(page.getByRole('tab', { name: 'Weight' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel', { name: /weight/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Record weight' })).toBeVisible();
+  await expect(page.getByText('No weigh-ins yet.')).toBeVisible();
 
   // Return to the chart without opening the record form.
   await page.getByRole('tab', { name: 'Chart' }).click();
@@ -40,7 +47,7 @@ test('arrow keys switch tabs (WAI-ARIA tab pattern)', async ({ page }) => {
   await page.getByRole('tab', { name: 'Chart' }).focus();
   await page.keyboard.press('ArrowRight');
 
-  const tableTab = page.getByRole('tab', { name: 'Table' });
+  const tableTab = page.getByRole('tab', { name: 'Blood pressure' });
   await expect(tableTab).toHaveAttribute('aria-selected', 'true');
   await expect(tableTab).toBeFocused();
 });
@@ -121,7 +128,7 @@ test('saving a valid reading syncs it to the server', async ({ page }) => {
 
   // Table tab lists the readings newest first (two rows just added, plus the
   // header row).
-  await page.getByRole('tab', { name: 'Table' }).click();
+  await page.getByRole('tab', { name: 'Blood pressure' }).click();
   const rows = page.getByRole('table').getByRole('row');
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(1)).toContainText('130');
@@ -132,34 +139,48 @@ test('saving a valid reading syncs it to the server', async ({ page }) => {
   await expect(rows.nth(1).locator('th').first()).not.toHaveText('');
 });
 
-test('Export CSV downloads every stored record', async ({ page }) => {
+test('Export CSV downloads two separate files (blood pressure + weight)', async ({ page }) => {
   await page.goto('/');
   // Fresh context: records come from the server after the initial pull.
-  await page.getByRole('tab', { name: 'Table' }).click();
+  await page.getByRole('tab', { name: 'Blood pressure' }).click();
   const rows = page.getByRole('table').getByRole('row');
   await expect.poll(() => rows.count(), { timeout: 10_000 }).toBeGreaterThan(2);
 
   const exportButton = page.getByRole('button', { name: 'Export CSV' });
   await expect(exportButton).toBeEnabled();
 
-  const downloadPromise = page.waitForEvent('download');
+  // Predicate-based waits: each waits for its own filename, so both downloads
+  // (fired back to back by one click) are captured deterministically.
+  const bpDownloadPromise = page.waitForEvent('download', (download) =>
+    download.suggestedFilename().startsWith('bp-app-bloodpressure-'),
+  );
+  const weightDownloadPromise = page.waitForEvent('download', (download) =>
+    download.suggestedFilename().startsWith('bp-app-weight-'),
+  );
   await exportButton.click();
-  const download = await downloadPromise;
-  expect(download.suggestedFilename()).toMatch(/^bp-app-records-\d{4}-\d{2}-\d{2}\.csv$/);
+  const [bpDownload, weightDownload] = await Promise.all([bpDownloadPromise, weightDownloadPromise]);
 
-  const stream = await download.createReadStream();
-  const chunks: Buffer[] = [];
-  for await (const chunk of stream) {
-    chunks.push(chunk as Buffer);
-  }
-  const csv = Buffer.concat(chunks).toString('utf8');
-  const lines = csv.trim().split('\n');
-  expect(lines[0]).toBe('id,recorded_at,systolic,diastolic');
-  // The two online records (130/85 newest, then 122/78) are included.
-  expect(csv).toContain('130,85');
-  expect(csv).toContain('122,78');
-  // ISO-8601 timestamps intact (within each row).
-  expect(lines[1]).toMatch(/,\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z,/);
+  const readDownload = async (download: Download) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of await download.createReadStream()) {
+      chunks.push(chunk as Buffer);
+    }
+    return { name: download.suggestedFilename(), text: Buffer.concat(chunks).toString('utf8') };
+  };
+  const [bpFile, weightFile] = await Promise.all([readDownload(bpDownload), readDownload(weightDownload)]);
+
+  expect(bpFile.name).toMatch(/^bp-app-bloodpressure-\d{4}-\d{2}-\d{2}\.csv$/);
+  expect(weightFile.name).toMatch(/^bp-app-weight-\d{4}-\d{2}-\d{2}\.csv$/);
+
+  // Blood pressure file: same shape the server persists, records included.
+  const bpLines = bpFile.text.trim().split('\n');
+  expect(bpLines[0]).toBe('id,recorded_at,systolic,diastolic');
+  expect(bpFile.text).toContain('130,85');
+  expect(bpFile.text).toContain('122,78');
+  expect(bpLines[1]).toMatch(/,\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z,/);
+
+  // Weight file: header-only (no weigh-ins seeded yet), still a valid CSV.
+  expect(weightFile.text.trim().split('\n')[0]).toBe('id,recorded_at,weight');
 });
 
 test('offline saves are retained locally and sync after reconnect', async ({ page }) => {
@@ -183,7 +204,7 @@ test('offline saves are retained locally and sync after reconnect', async ({ pag
   await expect(page.getByRole('heading', { name: 'bp.app' })).toBeVisible();
   await expect(page.locator('.bp-sync')).toContainText(/Offline|Waiting/);
 
-  await page.getByRole('tab', { name: 'Table' }).click();
+  await page.getByRole('tab', { name: 'Blood pressure' }).click();
   // Newest first: the freshly created record sits in the first data row.
   const row = page.getByRole('table').getByRole('row').nth(1);
   await expect(row).toContainText('132');
@@ -238,7 +259,7 @@ test.describe('table edit mode', () => {
     // Wait for the initial server pull/sync to settle so late record
     // refreshes cannot re-render rows mid-edit (which drops input focus).
     await expect(page.locator('.bp-sync')).toContainText(/Synced/, { timeout: 15_000 });
-    await page.getByRole('tab', { name: 'Table' }).click();
+    await page.getByRole('tab', { name: 'Blood pressure' }).click();
   });
 
   // Anchors a table row by its record id, immune to re-sorting.
@@ -414,5 +435,129 @@ test.describe('chart mode toggle', () => {
     // Restore the default for later tests.
     await page.getByRole('button', { name: 'Split graph' }).click();
     await expect(page.locator('.bp-chart-canvas canvas')).toHaveCount(2);
+  });
+});
+
+test.describe('weight tracking', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('.bp-sync')).toContainText(/Synced/, { timeout: 15_000 });
+    await page.getByRole('tab', { name: 'Weight' }).click();
+  });
+
+  test('record weight dialog validates and saves in kilograms', async ({ page }) => {
+    await page.getByRole('button', { name: 'Record weight' }).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // Empty field: inline message.
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('Enter a weight.');
+
+    // More than one decimal place is rejected.
+    await dialog.locator('[data-test="weight-input"]').fill('90.55');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('at most one decimal place');
+
+    // A valid weigh-in saves with the automatic timestamp.
+    await dialog.locator('[data-test="weight-input"]').fill('89.9');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByText('Saved on this device.')).toBeVisible();
+
+    const row = page.getByRole('table').getByRole('row').nth(1);
+    await expect(row).toContainText('89.9');
+    await expect(row).toContainText('Synced', { timeout: 15_000 });
+
+    await expect
+      .poll(async () => {
+        return page.evaluate(async () => {
+          const records = (await (await fetch('/api/weight')).json()) as { weight: number }[];
+          return records.some((r) => r.weight === 89.9);
+        });
+      }, { timeout: 10_000 })
+      .toBe(true);
+  });
+
+  test('unit switcher converts the display and persists across reloads', async ({ page }) => {
+    // Record 89.9 kg first.
+    await page.getByRole('button', { name: 'Record weight' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('[data-test="weight-input"]').fill('89.9');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByText('Saved on this device.')).toBeVisible();
+
+    // The toggle's accessible name comes from its aria-label ("Show weight in
+    // pounds"/"kilograms"), so locate it via data-test and assert the label
+    // text instead.
+    const unitToggle = page.locator('[data-test="unit-toggle"]');
+    await unitToggle.click();
+    await expect(unitToggle).toHaveText('Units: lb');
+    const row = page.getByRole('table').getByRole('row').nth(1);
+    await expect(row).toContainText(/19[0-9]\.\d/); // ~198.0 lb
+
+    // The switch survives a reload.
+    await page.reload();
+    await expect(unitToggle).toHaveText('Units: lb');
+
+    // Record a pound value: the server stores kilograms (canonical).
+    await page.getByRole('button', { name: 'Record weight' }).click();
+    const weightDialog = page.getByRole('dialog');
+    await expect(weightDialog.getByText('Weight (lb)')).toBeVisible();
+    await weightDialog.locator('[data-test="weight-input"]').fill('170');
+    await weightDialog.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByText('Saved on this device.')).toBeVisible();
+
+    await expect
+      .poll(async () => {
+        return page.evaluate(async () => {
+          const records = (await (await fetch('/api/weight')).json()) as { weight: number }[];
+          return records.some((r) => r.weight === 77.1);
+        });
+      }, { timeout: 10_000 })
+      .toBe(true);
+
+    // Back to kilograms: values show converted (77.1 kg).
+    await page.locator('[data-test="unit-toggle"]').click();
+    await expect(page.getByRole('table').getByRole('row').nth(1)).toContainText('77.1');
+  });
+
+  test('weight edit and delete sync like blood pressure', async ({ page }) => {
+    // Seed one weigh-in.
+    await page.getByRole('button', { name: 'Record weight' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.locator('[data-test="weight-input"]').fill('90.5');
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(page.getByText('Saved on this device.')).toBeVisible();
+    const targetId = await page.evaluate(async () => (await (await fetch('/api/weight')).json())[0].id);
+    const targetRow = page.locator(`tr[data-record-id="${targetId}"]`);
+
+    // Edit the weight value on blur.
+    await page.getByRole('button', { name: 'Edit' }).click();
+    await targetRow.locator('[data-test="weight-cell-input"]').fill('91.3');
+    await targetRow.locator('[data-test="date-input"]').click();
+    await expect(targetRow).toContainText('Synced', { timeout: 15_000 });
+
+    await expect
+      .poll(async () => {
+        return page.evaluate(async (id) => {
+          const records = (await (await fetch('/api/weight')).json()) as { id: string; weight: number }[];
+          return records.find((r) => r.id === id)?.weight === 91.3;
+        }, targetId);
+      }, { timeout: 10_000 })
+      .toBe(true);
+
+    // Delete the row; the server record disappears.
+    page.once('dialog', (dialogBox) => dialogBox.accept());
+    await targetRow.getByRole('button', { name: 'Delete' }).click();
+    await expect(targetRow).toHaveCount(0, { timeout: 10_000 });
+
+    await expect
+      .poll(async () => {
+        return page.evaluate(async (id) => {
+          const records = (await (await fetch('/api/weight')).json()) as { id: string }[];
+          return !records.some((r) => r.id === id);
+        }, targetId);
+      }, { timeout: 10_000 })
+      .toBe(true);
   });
 });

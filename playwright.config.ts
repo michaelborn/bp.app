@@ -2,6 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 const PORT = 4599;
 const DATA_FILE = '/tmp/bp-e2e-data.csv';
+const WEIGHT_FILE = '/tmp/bp-e2e-weight.csv';
 
 export default defineConfig({
   testDir: 'e2e',
@@ -16,7 +17,7 @@ export default defineConfig({
   },
   webServer: {
     // Always a fresh server/data file: kill anything already on port 4599.
-    command: `fuser -k ${PORT}/tcp 2>/dev/null; sleep 0.5; rm -f ${DATA_FILE}; BP_DATA_FILE=${DATA_FILE} PORT=${PORT} HOST=127.0.0.1 node .output/server/index.mjs`,
+    command: `fuser -k ${PORT}/tcp 2>/dev/null; sleep 0.5; rm -f ${DATA_FILE} ${WEIGHT_FILE}; BP_DATA_FILE=${DATA_FILE} BP_WEIGHT_FILE=${WEIGHT_FILE} PORT=${PORT} HOST=127.0.0.1 node .output/server/index.mjs`,
     url: `http://127.0.0.1:${PORT}/api/health`,
     reuseExistingServer: false,
     timeout: 20_000,
