@@ -1,56 +1,6 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-
 import type { BPRecord } from '~/shared/bp-record';
 import { parseRecord, validateRecord } from '#shared/utils/record-validation';
-
-// IndexedDB-backed local record cache, pending-sync queue, and deletion
-// tombstones. All records (cached and pending) are stored in one 'records'
-// store; the 'pending' store holds only the ids queued for sync, and
-// 'deletions' holds tombstoned ids whose removal still needs to reach the
-// server.
-
-const DB_NAME = 'bp-app';
-const DB_VERSION = 2;
-
-type BPDB = DBSchema & {
-  records: {
-    key: string;
-    value: BPRecord;
-    indexes: { 'by-recordedAt': string };
-  };
-  pending: {
-    key: string;
-    value: { id: string };
-  };
-  deletions: {
-    key: string;
-    value: { id: string };
-  };
-};
-
-let dbPromise: Promise<IDBPDatabase<BPDB>> | null = null;
-
-function getDb(): Promise<IDBPDatabase<BPDB>> {
-  if (!dbPromise) {
-    dbPromise = openDB<BPDB>(DB_NAME, DB_VERSION, {
-      upgrade(db, oldVersion) {
-        if (!db.objectStoreNames.contains('records')) {
-          const records = db.createObjectStore('records', { keyPath: 'id' });
-          records.createIndex('by-recordedAt', 'recordedAt');
-        }
-        if (!db.objectStoreNames.contains('pending')) {
-          db.createObjectStore('pending', { keyPath: 'id' });
-        }
-        if (!oldVersion || oldVersion < 2) {
-          if (!db.objectStoreNames.contains('deletions')) {
-            db.createObjectStore('deletions', { keyPath: 'id' });
-          }
-        }
-      },
-    });
-  }
-  return dbPromise;
-}
+import { getDb } from './db';
 
 // All current cached records (synced + pending).
 export async function getLocalRecords(): Promise<BPRecord[]> {
