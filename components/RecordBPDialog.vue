@@ -67,7 +67,7 @@ function submit() {
         aria-labelledby="record-bp-title"
       >
         <h2 id="record-bp-title" class="bp-dialog-title">Record BP</h2>
-        <form class="bp-dialog-form" @submit.prevent="submit">
+        <form class="bp-dialog-form" novalidate @submit.prevent="submit">
           <div class="bp-fields">
             <label class="bp-field">
               <span class="bp-field-label">Systolic (mmHg)</span>
