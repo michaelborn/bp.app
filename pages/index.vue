@@ -324,7 +324,6 @@ const exportDisabled = computed(() => !bp.sortedRecords.value.length && !weight.
         <WeightRecordsTable
           :records="weight.sortedRecords.value"
           :pending-ids="weight.pendingIds.value ?? undefined"
-          @record="openWeightDialog"
           @update-record="weight.updateRecord"
           @delete-record="weight.deleteRecord"
         />

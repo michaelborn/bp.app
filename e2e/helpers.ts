@@ -50,3 +50,9 @@ export async function openRecordDialog(page: Page): Promise<void> {
   await page.getByRole('menuitem', { name: 'Blood pressure' }).click();
   await expect(page.getByRole('dialog')).toBeVisible();
 }
+
+export async function openWeightRecordDialog(page: Page): Promise<void> {
+  await openRecordMenu(page);
+  await page.getByRole('menuitem', { name: 'Weight' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+}

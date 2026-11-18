@@ -1,6 +1,6 @@
 import { expect, test, type Download } from '@playwright/test';
 
-import { openRecordDialog, openSettingsMenu, waitForServiceWorkerController } from './helpers';
+import { openRecordDialog, openSettingsMenu, openWeightRecordDialog, waitForServiceWorkerController } from './helpers';
 
 // The suite runs in declaration order against one server (workers: 1), so
 // each step builds deterministically on the previous one.
@@ -30,11 +30,12 @@ test('switching tabs shows the table and back again', async ({ page }) => {
   // No readings yet: table view shows its empty state instead of a table.
   await expect(page.getByText('No readings yet.')).toBeVisible();
 
-  // Weight tab has its own screen, record button and table.
+  // Weight tab has its own screen and table; recording happens from the
+  // header Record menu, so the tab itself carries no record button.
   await page.getByRole('tab', { name: 'Weight' }).click();
   await expect(page.getByRole('tab', { name: 'Weight' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('tabpanel', { name: /weight/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Record weight' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Record weight' })).toHaveCount(0);
   await expect(page.getByText('No weigh-ins yet.')).toBeVisible();
 
   // Return to the chart without opening the record form.
@@ -511,7 +512,7 @@ test.describe('weight tracking', () => {
   });
 
   test('record weight dialog validates and saves in kilograms', async ({ page }) => {
-    await page.getByRole('button', { name: 'Record weight' }).click();
+    await openWeightRecordDialog(page);
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
@@ -545,7 +546,7 @@ test.describe('weight tracking', () => {
 
   test('unit switcher converts the display and persists across reloads', async ({ page }) => {
     // Record 89.9 kg first.
-    await page.getByRole('button', { name: 'Record weight' }).click();
+    await openWeightRecordDialog(page);
     const dialog = page.getByRole('dialog');
     await dialog.locator('[data-test="weight-input"]').fill('89.9');
     await dialog.getByRole('button', { name: 'Save' }).click();
@@ -568,7 +569,7 @@ test.describe('weight tracking', () => {
     await expect(page.getByRole('menu')).toHaveCount(0);
 
     // Record a pound value: the server stores kilograms (canonical).
-    await page.getByRole('button', { name: 'Record weight' }).click();
+    await openWeightRecordDialog(page);
     const weightDialog = page.getByRole('dialog');
     await expect(weightDialog.getByText('Weight (lb)')).toBeVisible();
     await weightDialog.locator('[data-test="weight-input"]').fill('170');
@@ -615,7 +616,7 @@ test.describe('weight tracking', () => {
 
   test('weight edit and delete sync like blood pressure', async ({ page }) => {
     // Seed one weigh-in.
-    await page.getByRole('button', { name: 'Record weight' }).click();
+    await openWeightRecordDialog(page);
     const dialog = page.getByRole('dialog');
     await dialog.locator('[data-test="weight-input"]').fill('90.5');
     await dialog.getByRole('button', { name: 'Save' }).click();

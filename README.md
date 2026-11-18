@@ -4,8 +4,7 @@ A simple, offline-first, self-hosted blood pressure tracker. Record your blood p
 
 ## Features
 
-- **Record Blood Pressure / Weight** — From the header **Record** menu (weight
-  also has a button on its own screen). The timestamp is recorded
+- **Record Blood Pressure / Weight** — From the header **Record** menu. The timestamp is recorded
   automatically by default; uncheck the box to back-date a reading with a
   date & time picker. Weight takes one decimal place, kg or lb display
   (kilograms stay canonical in the CSV).

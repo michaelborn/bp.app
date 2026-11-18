@@ -13,7 +13,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'update-record', record: WeightRecord): void;
   (e: 'delete-record', id: string): void;
-  (e: 'record'): void;
 }>();
 
 const { unit, toDisplay, fromDisplay } = useWeightUnits();
@@ -118,14 +117,6 @@ watch(() => props.records, (records) => {
       <div class="bp-table-heading-actions">
         <button
           type="button"
-          class="bp-button bp-button-primary"
-          data-test="record-weight"
-          @click="emit('record')"
-        >
-          Record weight
-        </button>
-        <button
-          type="button"
           class="bp-button"
           data-test="edit-toggle"
           :disabled="!props.records.length && !editing"
@@ -137,7 +128,7 @@ watch(() => props.records, (records) => {
     </div>
 
     <p v-if="!props.records.length" class="bp-table-empty">
-      No weigh-ins yet. Record weight to start your history.
+      No weigh-ins yet. Use Record in the header to start your history.
     </p>
 
     <div v-else class="bp-table-scroll">
@@ -327,12 +318,6 @@ watch(() => props.records, (records) => {
   margin-top: 0.2rem;
   font-size: 0.75rem;
   color: var(--bp-danger);
-}
-
-.bp-button-primary {
-  background: var(--bp-accent);
-  border-color: var(--bp-accent);
-  color: var(--bp-accent-contrast);
 }
 
 .bp-button-danger {

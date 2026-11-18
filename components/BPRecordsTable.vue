@@ -120,7 +120,7 @@ watch(() => props.records, (records) => {
     </div>
 
     <p v-if="!props.records.length" class="bp-table-empty">
-      No readings yet. Record BP to start your history.
+      No readings yet. Use Record in the header to start your history.
     </p>
 
     <div v-else class="bp-table-scroll">
